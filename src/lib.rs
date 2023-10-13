@@ -49,7 +49,7 @@ impl Response {
 pub struct CnctdServer;
 
 impl CnctdServer {
-    pub async fn start<R>(port: &str, client_dir: Option<&str>, router: R) 
+    pub async fn start<R>(port: &str, client_dir: Option<String>, router: R) 
     where
         R: RouterFunction + 'static,  // Notice the 'static lifetime here
     {
@@ -80,7 +80,7 @@ impl CnctdServer {
         );
 
         let directory = match client_dir {
-            Some(client_dir) => Some(client_dir.to_string()),
+            Some(client_dir) => Some(client_dir),
             None => None,
         };
         let web_app = spa(directory);
