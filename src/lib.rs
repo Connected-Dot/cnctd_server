@@ -1,6 +1,4 @@
 use std::{sync::Arc, pin::Pin, future::Future};
-
-use handlers::{Message, Response};
 use local_ip_address::local_ip;
 use serde::{Serialize, Deserialize};
 use serde_json::Value;
@@ -13,6 +11,39 @@ mod handlers;
 
 pub trait RouterFunction: Send + Sync {
     fn route(&self, msg: Message) -> Pin<Box<dyn Future<Output = Response> + Send>>;
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct Message {
+    pub channel: String,
+    pub instruction: String,
+    pub data: Option<Value>
+}
+
+impl Message {
+    pub fn new(channel: &str, instruction: &str, data: Option<Value>) -> Self {
+        Self {
+            channel: channel.into(),
+            instruction: instruction.into(),
+            data,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Response {
+    pub success: bool,
+    pub msg: Option<String>,
+    pub data: Option<Value>,
+}
+
+impl Response {
+    pub fn success(msg: Option<String>, data: Option<Value>) -> Self {
+        Self { success: true, msg, data }
+    }
+    pub fn failure(msg: Option<String>, data: Option<Value>) -> Self {
+        Self { success: false, msg, data }
+    }
 }
 
 pub struct CnctdServer;
