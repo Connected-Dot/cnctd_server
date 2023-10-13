@@ -50,13 +50,14 @@ pub struct CnctdServer;
 
 impl CnctdServer {
     pub async fn start<R>(port: &str, client_dir: Option<String>, router: R) 
+    -> anyhow::Result<()>
     where
-        R: RouterFunction + 'static,  // Notice the 'static lifetime here
+        R: RouterFunction + 'static
     {
-        let router = Arc::new(router);  // Wrap the router in an Arc
+        let router = Arc::new(router);
 
         let cors = cors();
-        let my_local_ip = local_ip().unwrap();
+        let my_local_ip = local_ip()?;
     
         let cloned_router_for_post = Arc::clone(&router);
         let cloned_router_for_get = Arc::clone(&router);
@@ -90,9 +91,11 @@ impl CnctdServer {
         
         println!("server running at http://{}:{}", my_local_ip, port);
         let ip_address: [u8; 4] = [0, 0, 0, 0];
-        let parsed_port = port.parse::<u16>().expect("Failed to parse port into u16");
+        let parsed_port = port.parse::<u16>()?;
         let socket = std::net::SocketAddr::from((ip_address, parsed_port));
         
-        warp::serve(routes).run(socket).await        
+        warp::serve(routes).run(socket).await;
+
+        Ok(())
     }
 }
