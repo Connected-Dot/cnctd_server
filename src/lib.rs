@@ -62,7 +62,7 @@ impl CnctdServer {
         let cloned_router_for_post = Arc::clone(&router);
         let cloned_router_for_get = Arc::clone(&router);
         
-        let rest_route = warp::path!("/")
+        let rest_route = warp::path::end()
         .and(
             warp::post()
                 .and(warp::body::json())
