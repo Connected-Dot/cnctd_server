@@ -1,8 +1,8 @@
-use std::{sync::Arc, pin::Pin, future::Future};
+use std::{sync::{Arc, Mutex}, pin::Pin, future::Future, collections::HashMap};
 use local_ip_address::local_ip;
 use serde::{Serialize, Deserialize};
 use serde_json::Value;
-use warp::{Filter, filters::BoxedFilter};
+use warp::{Filter, filters::{BoxedFilter, ws::{WebSocket, Ws}}};
 
 use crate::{utils::{cors, spa}, handlers::{post_handler, get_handler}};
 
@@ -46,7 +46,9 @@ impl Response {
     }
 }
 
-pub struct CnctdServer;
+pub struct CnctdServer {
+    ws_clients: Arc<Mutex<HashMap<String, WebSocket>>>,
+}
 
 impl CnctdServer {
     pub async fn start<R>(port: &str, client_dir: Option<String>, router: R) 
@@ -97,5 +99,23 @@ impl CnctdServer {
         warp::serve(routes).run(socket).await;
 
         Ok(())
+    }
+
+    // pub async fn handle_ws_connection(&self, ws: Ws, id: String) -> impl warp::Reply {
+    //     ws.on_upgrade(move |socket| {
+    //         self.add_ws_client(id, socket)
+    //     })
+    // }
+
+    fn add_ws_client(&self, id: String, socket: WebSocket) {
+        let mut clients = self.ws_clients.lock().unwrap();
+        clients.insert(id, socket);
+    }
+
+    pub async fn send_ws_message(&self, id: &str, message: Message) {
+        let clients = self.ws_clients.lock().unwrap();
+        if let Some(client) = clients.get(id) {
+            // Serialize the message and send it through the WebSocket
+        }
     }
 }
