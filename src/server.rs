@@ -1,9 +1,10 @@
-use std::{collections::HashMap, sync::{Arc, Mutex}};
+use std::{collections::HashMap, sync::{Arc, Mutex}, time::Duration};
 
 use local_ip_address::local_ip;
+use serde::{de::DeserializeOwned, Serialize};
 use warp::{filters::ws::WebSocket, Filter};
 
-use crate::{handlers::Handler, message::Message, router::RouterFunction, utils::{cors, spa}};
+use crate::{handlers::{Handler, RedirectHandler}, message::Message, router::RouterFunction, utils::{cors, spa}};
 
 pub struct CnctdServer {
     ws_clients: Arc<Mutex<HashMap<String, WebSocket>>>,
@@ -60,6 +61,50 @@ impl CnctdServer {
         Ok(())
     }
 
+    pub async fn start_redirect<M, H>(port: &str, handler: H, mut shutdown_rx: tokio::sync::mpsc::Receiver<()>) -> anyhow::Result<()> 
+    where
+        M: Serialize + DeserializeOwned + Send + Sync + 'static,
+        H: RedirectHandler<M> + 'static,
+    {
+        let handler = Arc::new(handler);
+        let cors = cors();
+        let my_local_ip = local_ip().unwrap_or([0, 0, 0, 0].into());
+    
+        let rest_route = warp::path::end()
+            .and(warp::get())
+            .and(warp::query::<M>())
+            .and(with_handler(handler.clone()))
+            .and_then(|msg, handler| {
+                Handler::get_redirect(msg, handler)
+            });
+    
+        let routes = rest_route.with(cors).boxed();
+        let ip_address: [u8; 4] = [0, 0, 0, 0];
+        let parsed_port = port.parse::<u16>().unwrap_or(8543);
+        let socket = std::net::SocketAddr::from((ip_address, parsed_port));
+        
+        println!("server running at http://{}:{}", my_local_ip, port);
+
+        tokio::select! {
+            _ = shutdown_rx.recv() => {
+                println!("Shutdown signal received, stopping server...");
+                Ok(())
+            }
+            _ = async {
+                warp::serve(routes).run(socket).await;
+                
+                loop {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+
+            } => Ok(())
+        }
+
+        
+        
+
+    }
+
     // pub async fn handle_ws_connection(&self, ws: Ws, id: String) -> impl warp::Reply {
     //     ws.on_upgrade(move |socket| {
     //         self.add_ws_client(id, socket)
@@ -77,4 +122,12 @@ impl CnctdServer {
             // Serialize the message and send it through the WebSocket
         }
     }
+}
+
+fn with_handler<M, H>(handler: Arc<H>) -> impl Filter<Extract = (Arc<H>,), Error = std::convert::Infallible> + Clone
+where
+    M: Serialize + DeserializeOwned + Send + Sync,
+    H: RedirectHandler<M>,
+{
+    warp::any().map(move || handler.clone())
 }
