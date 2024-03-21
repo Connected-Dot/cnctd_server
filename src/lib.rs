@@ -4,5 +4,6 @@ pub mod message;
 pub mod response;
 pub mod router;
 pub mod server;
+pub mod socket;
 
 
