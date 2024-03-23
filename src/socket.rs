@@ -1,13 +1,21 @@
-use std::{collections::{HashMap, HashSet}, sync::Arc};
-use futures_util::StreamExt;
+use futures_util::{sink::SinkExt, stream::StreamExt};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use tokio::sync::{mpsc, RwLock};
-use warp::{filters::ws::Message as SocketMessage, ws::WebSocket, Filter};
+use warp::ws::{Message as SocketMessage, WebSocket};
+use warp::Filter;
 
-use crate::router::RouterFunction;
+#[derive(Serialize, Deserialize, Debug)]
+pub struct GenericMessage {
+    pub msg_type: String,
+    pub payload: Value,
+}
 
 type UserId = String;
 type Channel = String;
-type ClientSender = mpsc::UnboundedSender<warp::ws::Message>;
+type ClientSender = mpsc::UnboundedSender<SocketMessage>;
 
 #[derive(Debug, Clone)]
 pub struct Client {
@@ -30,29 +38,16 @@ impl CnctdSocket {
         }
     }
 
-    pub async fn initiate_ws_connection<R>(socket_server: Arc<Self>, socket: WebSocket, router: Arc<R>)
-    where
-        R: RouterFunction + 'static,
-    {
-        socket_server.handle_ws_connection(socket, router).await;
-    }
-
-    pub async fn start<R>(port: &str, router: R) -> anyhow::Result<()>
-        where R: RouterFunction + 'static + Clone
-    {
+    pub async fn start(port: &str) -> anyhow::Result<()> {
         let socket_server = Arc::new(Self::new());
-        let router = Arc::new(router);
 
         let ws_route = warp::path("ws")
             .and(warp::ws())
             .map(move |ws: warp::ws::Ws| {
-                let socket_server_clone = Arc::clone(&socket_server);
-                let router_clone = Arc::clone(&router);
-        
-                ws.on_upgrade(move |socket| {
-                    Self::initiate_ws_connection(socket_server_clone, socket, router_clone)
-                })
+                let server_clone = Arc::clone(&socket_server);
+                ws.on_upgrade(move |socket| server_clone.handle_ws_connection(socket))
             });
+
 
         let ip_address: [u8; 4] = [0, 0, 0, 0];
         let parsed_port = port.parse::<u16>()?;
@@ -65,32 +60,42 @@ impl CnctdSocket {
         Ok(())
     }
 
-    async fn handle_ws_connection<R>(&self, ws: WebSocket, router: Arc<R>)
-            where  R: RouterFunction + 'static
-        {
+    async fn handle_ws_connection(&self, ws: WebSocket) {
+        let (mut sender, mut receiver) = ws.split();
 
-        let (mut tx, mut rx) = ws.split();
-        while let Some(result) = rx.next().await {
+        while let Some(result) = receiver.next().await {
             match result {
-                Ok(ws_msg) => {
-                    if ws_msg.is_text() {
-                        let text = ws_msg.to_str().unwrap(); // It's essential to handle errors appropriately in production code
-                        println!("Received WebSocket message: {}", text); // Print the raw text of the WebSocket message
-                
-                        // Attempt to deserialize the text message into your custom Message struct
-                        // Note: This step may not be necessary if you're just inspecting the message
-                        // if let Ok(msg) = serde_json::from_str::<SocketMessage>(text) {
-                            // Placeholder: Handle the message with your router or other logic
-                            // This example does not proceed with routing or sending a response
-                            // but you can implement that logic as needed based on your requirements
-                        // }
+                Ok(msg) if msg.is_text() => {
+                    if let Ok(text) = msg.to_str() {
+                        if let Ok(generic_msg) = serde_json::from_str::<GenericMessage>(text) {
+                            println!("Received message: {:?}", generic_msg);
+
+                            let response = GenericMessage {
+                                msg_type: "response".to_string(),
+                                payload: Value::String("Processed your message".to_string()),
+                            };
+                            
+                            if let Ok(response_text) = serde_json::to_string(&response) {
+                                let _ = sender.send(SocketMessage::text(response_text)).await;
+                                // Optionally handle send error here
+                            }
+                        }
                     }
                 },
                 Err(e) => {
                     eprintln!("WebSocket error: {:?}", e);
                     break;
                 },
+                _ => {} // Optionally handle binary messages or close messages here
             }
         }
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    let port = "8080"; // Example port
+    if let Err(e) = CnctdSocket::start(port).await {
+        eprintln!("Error starting server: {:?}", e);
     }
 }
