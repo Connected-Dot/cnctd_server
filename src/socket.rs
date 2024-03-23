@@ -38,64 +38,56 @@ impl CnctdSocket {
         }
     }
 
-    pub async fn start(port: &str) -> anyhow::Result<()> {
-        let socket_server = Arc::new(Self::new());
+    // pub async fn start(port: &str) -> anyhow::Result<()> {
+    //     let socket_server = Arc::new(Self::new());
 
-        let ws_route = warp::path("ws")
-            .and(warp::ws())
-            .map(move |ws: warp::ws::Ws| {
-                let server_clone = Arc::clone(&socket_server);
-                ws.on_upgrade(move |socket| server_clone.handle_ws_connection(socket))
-            });
+    //     let ws_route = warp::path("ws")
+    //         .and(warp::ws())
+    //         .map(move |ws: warp::ws::Ws| {
+    //             let server_clone = Arc::clone(&socket_server);
+    //             ws.on_upgrade(move |socket| server_clone.handle_ws_connection(socket))
+    //         });
 
 
-        let ip_address: [u8; 4] = [0, 0, 0, 0];
-        let parsed_port = port.parse::<u16>()?;
-        let socket_addr = std::net::SocketAddr::from((ip_address, parsed_port));
+    //     let ip_address: [u8; 4] = [0, 0, 0, 0];
+    //     let parsed_port = port.parse::<u16>()?;
+    //     let socket_addr = std::net::SocketAddr::from((ip_address, parsed_port));
         
-        warp::serve(ws_route)
-            .run(socket_addr)
-            .await;
+    //     warp::serve(ws_route)
+    //         .run(socket_addr)
+    //         .await;
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
-    async fn handle_ws_connection(&self, ws: WebSocket) {
-        let (mut sender, mut receiver) = ws.split();
+    // async fn handle_ws_connection(&self, ws: WebSocket) {
+    //     let (mut sender, mut receiver) = ws.split();
 
-        while let Some(result) = receiver.next().await {
-            match result {
-                Ok(msg) if msg.is_text() => {
-                    if let Ok(text) = msg.to_str() {
-                        if let Ok(generic_msg) = serde_json::from_str::<GenericMessage>(text) {
-                            println!("Received message: {:?}", generic_msg);
+    //     while let Some(result) = receiver.next().await {
+    //         match result {
+    //             Ok(msg) if msg.is_text() => {
+    //                 if let Ok(text) = msg.to_str() {
+    //                     if let Ok(generic_msg) = serde_json::from_str::<GenericMessage>(text) {
+    //                         println!("Received message: {:?}", generic_msg);
 
-                            let response = GenericMessage {
-                                msg_type: "response".to_string(),
-                                payload: Value::String("Processed your message".to_string()),
-                            };
+    //                         let response = GenericMessage {
+    //                             msg_type: "response".to_string(),
+    //                             payload: Value::String("Processed your message".to_string()),
+    //                         };
                             
-                            if let Ok(response_text) = serde_json::to_string(&response) {
-                                let _ = sender.send(SocketMessage::text(response_text)).await;
-                                // Optionally handle send error here
-                            }
-                        }
-                    }
-                },
-                Err(e) => {
-                    eprintln!("WebSocket error: {:?}", e);
-                    break;
-                },
-                _ => {} // Optionally handle binary messages or close messages here
-            }
-        }
-    }
-}
-
-#[tokio::main]
-async fn main() {
-    let port = "8080"; // Example port
-    if let Err(e) = CnctdSocket::start(port).await {
-        eprintln!("Error starting server: {:?}", e);
-    }
+    //                         if let Ok(response_text) = serde_json::to_string(&response) {
+    //                             let _ = sender.send(SocketMessage::text(response_text)).await;
+    //                             // Optionally handle send error here
+    //                         }
+    //                     }
+    //                 }
+    //             },
+    //             Err(e) => {
+    //                 eprintln!("WebSocket error: {:?}", e);
+    //                 break;
+    //             },
+    //             _ => {} // Optionally handle binary messages or close messages here
+    //         }
+    //     }
+    // }
 }
