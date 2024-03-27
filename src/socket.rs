@@ -21,8 +21,7 @@ impl CnctdSocket {
         let users = Users::default();
     
         let users_clone = users.clone();
-        let websocket_route = warp::path("ws")
-            .and(warp::ws())
+        let websocket_route = warp::ws()
             .and(warp::any().map(move || users_clone.clone()))
             .and(warp::any().map(move || router.clone()))
             .map(|ws: warp::ws::Ws, users: Users, router: R| {
@@ -31,7 +30,7 @@ impl CnctdSocket {
         
         let my_local_ip = local_ip()?;
     
-        println!("socket server running at http://{}:{}", my_local_ip, port);
+        println!("socket server running at ws://{}:{}", my_local_ip, port);
         let ip_address: [u8; 4] = [0, 0, 0, 0];
         let parsed_port = port.parse::<u16>()?;
         let socket_addr = std::net::SocketAddr::from((ip_address, parsed_port));
@@ -40,6 +39,27 @@ impl CnctdSocket {
     
         Ok(())
     }
+
+    pub async fn broadcast_message(users: Users, user_id: Option<String>, message: String) -> anyhow::Result<()> {
+        let message = WebSocketMessage::text(message);
+        let users = users.read().await;
+        
+        match user_id {
+            Some(user_id) => {
+                if let Some(sender) = users.get(&user_id) {
+                    sender.send(Ok(message)).ok();
+                }
+            },
+            None => {
+                for sender in users.values() {
+                    sender.send(Ok(message.clone())).ok(); // Clone message for each user
+                }
+            }
+        }
+    
+        Ok(())
+    }
+    
 }
 
 
