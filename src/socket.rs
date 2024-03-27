@@ -1,93 +1,76 @@
-use futures_util::{sink::SinkExt, stream::StreamExt};
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
-use warp::ws::{Message as SocketMessage, WebSocket};
+use futures_util::{FutureExt, StreamExt};
+use tokio_stream::wrappers::UnboundedReceiverStream;
+use warp::ws::{Message as WebSocketMessage, WebSocket};
 use warp::Filter;
+use std::collections::HashMap;
+use tokio::sync::{mpsc, RwLock};
+use std::sync::Arc;
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct GenericMessage {
-    pub msg_type: String,
-    pub payload: Value,
-}
+use crate::router::RouterFunction;
 
-type UserId = String;
-type Channel = String;
-type ClientSender = mpsc::UnboundedSender<SocketMessage>;
+type Users = Arc<RwLock<HashMap<String, mpsc::UnboundedSender<Result<WebSocketMessage, warp::Error>>>>>;
 
-#[derive(Debug, Clone)]
-pub struct Client {
-    user_id: UserId,
-    sender: ClientSender,
-    subscriptions: HashSet<Channel>,
-}
-
-#[derive(Debug, Clone)]
-pub struct CnctdSocket {
-    clients: Arc<RwLock<HashMap<UserId, Client>>>,
-    subscriptions: Arc<RwLock<HashMap<Channel, HashSet<UserId>>>>,
-}
+struct CnctdSocket;
 
 impl CnctdSocket {
-    pub fn new() -> Self {
-        Self {
-            clients: Arc::new(RwLock::new(HashMap::new())),
-            subscriptions: Arc::new(RwLock::new(HashMap::new())),
+    pub async fn start_socket<R>(router: R) -> anyhow::Result<()>
+    where
+        R: RouterFunction + Clone + 'static,
+    {
+        let users = Users::default();
+    
+        let users_clone = users.clone();
+        let websocket_route = warp::path("ws")
+            .and(warp::ws())
+            .and(warp::any().map(move || users_clone.clone()))
+            .and(warp::any().map(move || router.clone()))
+            .map(|ws: warp::ws::Ws, users: Users, router: R| {
+                ws.on_upgrade(move |socket| handle_connection(socket, users, router))
+            });
+    
+        warp::serve(websocket_route).run(([127, 0, 0, 1], 3030)).await;
+    
+        Ok(())
+    }
+}
+
+
+async fn handle_connection<R>(
+    websocket: WebSocket,
+    users: Users,
+    router: R,
+) where
+    R: RouterFunction,
+{
+    // Example placeholder implementation
+    let (user_ws_tx, mut user_ws_rx) = websocket.split();
+    let (tx, rx) = mpsc::unbounded_channel();
+    let rx = UnboundedReceiverStream::new(rx);
+
+    // This user's unique ID
+    let user_id = "user_id_example".to_string();
+
+    users.write().await.insert(user_id.clone(), tx);
+
+    let broadcast_incoming = user_ws_rx.for_each(|message| async {
+        if let Ok(msg) = message {
+            // Here you would use your router to handle the message
+            // and possibly broadcast a response.
         }
+    });
+
+    let receive_outgoing = rx.forward(user_ws_tx).map(|result| {
+        if let Err(e) = result {
+            // handle error
+        }
+    });
+
+    tokio::select! {
+        _ = broadcast_incoming => (),
+        _ = receive_outgoing => (),
     }
 
-    // pub async fn start(port: &str) -> anyhow::Result<()> {
-    //     let socket_server = Arc::new(Self::new());
-
-    //     let ws_route = warp::path("ws")
-    //         .and(warp::ws())
-    //         .map(move |ws: warp::ws::Ws| {
-    //             let server_clone = Arc::clone(&socket_server);
-    //             ws.on_upgrade(move |socket| server_clone.handle_ws_connection(socket))
-    //         });
-
-
-    //     let ip_address: [u8; 4] = [0, 0, 0, 0];
-    //     let parsed_port = port.parse::<u16>()?;
-    //     let socket_addr = std::net::SocketAddr::from((ip_address, parsed_port));
-        
-    //     warp::serve(ws_route)
-    //         .run(socket_addr)
-    //         .await;
-
-    //     Ok(())
-    // }
-
-    // async fn handle_ws_connection(&self, ws: WebSocket) {
-    //     let (mut sender, mut receiver) = ws.split();
-
-    //     while let Some(result) = receiver.next().await {
-    //         match result {
-    //             Ok(msg) if msg.is_text() => {
-    //                 if let Ok(text) = msg.to_str() {
-    //                     if let Ok(generic_msg) = serde_json::from_str::<GenericMessage>(text) {
-    //                         println!("Received message: {:?}", generic_msg);
-
-    //                         let response = GenericMessage {
-    //                             msg_type: "response".to_string(),
-    //                             payload: Value::String("Processed your message".to_string()),
-    //                         };
-                            
-    //                         if let Ok(response_text) = serde_json::to_string(&response) {
-    //                             let _ = sender.send(SocketMessage::text(response_text)).await;
-    //                             // Optionally handle send error here
-    //                         }
-    //                     }
-    //                 }
-    //             },
-    //             Err(e) => {
-    //                 eprintln!("WebSocket error: {:?}", e);
-    //                 break;
-    //             },
-    //             _ => {} // Optionally handle binary messages or close messages here
-    //         }
-    //     }
-    // }
+    // Remove user from users list when disconnected
+    users.write().await.remove(&user_id);
 }
+

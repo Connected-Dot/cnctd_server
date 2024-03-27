@@ -1,6 +1,6 @@
 [package]
 name = "cnctd_server"
-version = "0.1.13"
+version = "0.1.14"
 edition = "2021"
 authors = ["Connected Dot Inc.", "Kyle Ebner <kyle@cnctd.world>"]
 description = "Collection of server APIs"
@@ -17,4 +17,5 @@ local-ip-address = "0.5.6"
 serde = { version = "1.0.188", features = ["derive"] }
 serde_json = "1.0.107"
 tokio = { version = "1.35.1", features = ["full"] }
+tokio-stream = "0.1.15"
 warp = "0.3.6"
