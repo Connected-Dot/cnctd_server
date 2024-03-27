@@ -1,4 +1,5 @@
 use futures_util::{FutureExt, StreamExt};
+use local_ip_address::local_ip;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use warp::ws::{Message as WebSocketMessage, WebSocket};
 use warp::Filter;
@@ -13,7 +14,7 @@ type Users = Arc<RwLock<HashMap<String, mpsc::UnboundedSender<Result<WebSocketMe
 pub struct CnctdSocket;
 
 impl CnctdSocket {
-    pub async fn start_socket<R>(router: R) -> anyhow::Result<()>
+    pub async fn start<R>(port: &str, router: R) -> anyhow::Result<()>
     where
         R: RouterFunction + Clone + 'static,
     {
@@ -27,8 +28,15 @@ impl CnctdSocket {
             .map(|ws: warp::ws::Ws, users: Users, router: R| {
                 ws.on_upgrade(move |socket| handle_connection(socket, users, router))
             });
+        
+        let my_local_ip = local_ip()?;
     
-        warp::serve(websocket_route).run(([127, 0, 0, 1], 3030)).await;
+        println!("socket server running at http://{}:{}", my_local_ip, port);
+        let ip_address: [u8; 4] = [0, 0, 0, 0];
+        let parsed_port = port.parse::<u16>()?;
+        let socket_addr = std::net::SocketAddr::from((ip_address, parsed_port));
+
+        warp::serve(websocket_route).run(socket_addr).await;
     
         Ok(())
     }
