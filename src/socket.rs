@@ -10,7 +10,7 @@ use crate::router::RouterFunction;
 
 type Users = Arc<RwLock<HashMap<String, mpsc::UnboundedSender<Result<WebSocketMessage, warp::Error>>>>>;
 
-struct CnctdSocket;
+pub struct CnctdSocket;
 
 impl CnctdSocket {
     pub async fn start_socket<R>(router: R) -> anyhow::Result<()>
