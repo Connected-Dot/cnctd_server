@@ -1,12 +1,13 @@
-use futures_util::{FutureExt, StreamExt};
+use futures_util::{FutureExt, SinkExt, StreamExt};
 use local_ip_address::local_ip;
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use warp::ws::{Message as WebSocketMessage, WebSocket};
 use warp::Filter;
 use std::collections::HashMap;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::{mpsc, Mutex, RwLock};
 use std::sync::Arc;
 
+use crate::message::Message;
 use crate::router::RouterFunction;
 
 type Users = Arc<RwLock<HashMap<String, mpsc::UnboundedSender<Result<WebSocketMessage, warp::Error>>>>>;
@@ -29,8 +30,7 @@ impl CnctdSocket {
             });
         
         let my_local_ip = local_ip()?;
-    
-        println!("socket server running at ws://{}:{}", my_local_ip, port);
+        println!("WebSocket server running at ws://{}:{}", my_local_ip, port);
         let ip_address: [u8; 4] = [0, 0, 0, 0];
         let parsed_port = port.parse::<u16>()?;
         let socket_addr = std::net::SocketAddr::from((ip_address, parsed_port));
@@ -52,53 +52,70 @@ impl CnctdSocket {
             },
             None => {
                 for sender in users.values() {
-                    sender.send(Ok(message.clone())).ok(); // Clone message for each user
+                    sender.send(Ok(message.clone())).ok();
                 }
             }
         }
     
         Ok(())
     }
-    
 }
-
 
 async fn handle_connection<R>(
     websocket: WebSocket,
     users: Users,
     router: R,
-) where
-    R: RouterFunction,
+) where R: RouterFunction,
 {
-    // Example placeholder implementation
     let (user_ws_tx, mut user_ws_rx) = websocket.split();
+    let user_ws_tx = Arc::new(Mutex::new(user_ws_tx));
     let (tx, rx) = mpsc::unbounded_channel();
-    let rx = UnboundedReceiverStream::new(rx);
+    let rx_stream = UnboundedReceiverStream::new(rx);
 
-    // This user's unique ID
-    let user_id = "user_id_example".to_string();
-
+    let user_id = "user_id_example".to_string(); // This should be uniquely generated or identified
     users.write().await.insert(user_id.clone(), tx);
 
-    let broadcast_incoming = user_ws_rx.for_each(|message| async {
-        if let Ok(msg) = message {
-            // Here you would use your router to handle the message
-            // and possibly broadcast a response.
+    let user_ws_tx_clone = user_ws_tx.clone();
+    let process_incoming = user_ws_rx.for_each(move |message| {
+        let user_ws_tx = user_ws_tx_clone.clone();
+        async move {
+            if let Ok(msg) = message {
+                if let Ok(message_str) = msg.to_str() {
+                    if let Ok(message) = serde_json::from_str::<Message>(message_str) {
+                        let response = router.route(message).await;
+                        if let Ok(response_str) = serde_json::to_string(&response) {
+                            let ws_response = WebSocketMessage::text(response_str);
+                            let mut tx = user_ws_tx.lock().await;
+                            if let Err(e) = tx.send(ws_response).await {
+                                eprintln!("Error sending response: {}", e);
+                            }
+                        }
+                    }
+                }
+            }
         }
     });
 
-    let receive_outgoing = rx.forward(user_ws_tx).map(|result| {
-        if let Err(e) = result {
-            // handle error
+    let process_outgoing = async move {
+        let mut rx_stream = rx_stream;
+        while let Some(message_result) = rx_stream.next().await {
+            match message_result {
+                Ok(message) => {
+                    let mut lock = user_ws_tx.lock().await;
+                    if let Err(e) = lock.send(message).await {
+                        eprintln!("Error sending message: {}", e);
+                    }
+                },
+                Err(e) => eprintln!("Error preparing message for sending: {}", e),
+            }
         }
-    });
+    };
 
     tokio::select! {
-        _ = broadcast_incoming => (),
-        _ = receive_outgoing => (),
+        _ = process_incoming => (),
+        _ = process_outgoing => (),
     }
 
-    // Remove user from users list when disconnected
+    // Assuming removal is handled correctly elsewhere or after the loop
     users.write().await.remove(&user_id);
 }
-
