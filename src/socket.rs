@@ -1,8 +1,13 @@
+use anyhow::anyhow;
 use futures_util::{FutureExt, SinkExt, StreamExt};
 use local_ip_address::local_ip;
+use serde::{Deserialize, Serialize};
+use state::InitCell;
 use tokio_stream::wrappers::UnboundedReceiverStream;
+use warp::filters::ws::Ws;
 use warp::ws::{Message as WebSocketMessage, WebSocket};
 use warp::Filter;
+use warp::http::StatusCode;
 use std::collections::HashMap;
 use tokio::sync::{mpsc, Mutex, RwLock};
 use std::sync::Arc;
@@ -10,7 +15,29 @@ use std::sync::Arc;
 use crate::message::Message;
 use crate::router::RouterFunction;
 
-type Users = Arc<RwLock<HashMap<String, mpsc::UnboundedSender<Result<WebSocketMessage, warp::Error>>>>>;
+#[derive(Serialize, Deserialize)]
+pub struct ClientInfo {
+    user_id: String,
+    subscriptions: Vec<String>,
+    sender_count: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct Client {
+    pub subscriptions: Vec<String>,
+    pub senders: Vec<mpsc::UnboundedSender<std::result::Result<warp::ws::Message, warp::Error>>>,
+}
+
+impl Default for Client {
+    fn default() -> Self {
+        Client {
+            subscriptions: Vec::new(),
+            senders: Vec::new(),
+        }
+    }
+}
+
+static CLIENTS: InitCell<Arc<RwLock<HashMap<String, Client>>>> = InitCell::new();
 
 pub struct CnctdSocket;
 
@@ -19,16 +46,24 @@ impl CnctdSocket {
     where
         R: RouterFunction + Clone + 'static,
     {
-        let users = Users::default();
+
+        CLIENTS.set(Arc::new(RwLock::new(HashMap::new())));
     
-        let users_clone = users.clone();
         let websocket_route = warp::ws()
-            .and(warp::any().map(move || users_clone.clone()))
             .and(warp::any().map(move || router.clone()))
-            .map(|ws: warp::ws::Ws, users: Users, router: R| {
-                ws.on_upgrade(move |socket| handle_connection(socket, users, router))
+            .and(warp::query::<HashMap<String, String>>())
+            .map(|ws: Ws, router: R, params: HashMap<String, String>| -> Box<dyn warp::Reply> {
+                // Now the parameters are in the correct order: ws, router, params
+                if let Some(user_id) = params.get("user_id") {
+                    let user_id_cloned = user_id.clone();
+                    Box::new(ws.on_upgrade(move |socket| {
+                        handle_connection(socket, router, user_id_cloned)
+                    })) as Box<dyn warp::Reply>
+                } else {
+                    Box::new(warp::reply::with_status("user_id is required", StatusCode::BAD_REQUEST)) as Box<dyn warp::Reply>
+                }
             });
-        
+    
         let my_local_ip = local_ip()?;
         println!("WebSocket server running at ws://{}:{}", my_local_ip, port);
         let ip_address: [u8; 4] = [0, 0, 0, 0];
@@ -40,82 +75,124 @@ impl CnctdSocket {
         Ok(())
     }
 
-    pub async fn broadcast_message(users: Users, user_id: Option<String>, message: String) -> anyhow::Result<()> {
-        let message = WebSocketMessage::text(message);
-        let users = users.read().await;
+    // pub async fn broadcast_message(msg: Message) -> anyhow::Result<()> {
+    //     let clients = CLIENTS.get().read().await;
         
-        match user_id {
-            Some(user_id) => {
-                if let Some(sender) = users.get(&user_id) {
-                    sender.send(Ok(message)).ok();
-                }
-            },
-            None => {
-                for sender in users.values() {
-                    sender.send(Ok(message.clone())).ok();
-                }
+    //     if let Some(user_id) = user_id {
+    //         if let Some(client) = clients.get(&user_id) {
+    //             if let Some(sender) = &client.sender {
+    //                 sender.send(Ok(WebSocketMessage::text(message))).ok();
+    //             }
+    //         }
+    //     } else {
+    //         for client in clients.values() {
+    //             if let Some(sender) = &client.sender {
+    //                 sender.send(Ok(WebSocketMessage::text(message.clone()))).ok();
+    //             }
+    //         }
+    //     }
+    
+    //     Ok(())
+    // }
+
+    pub async fn message_user(user_id: &str, msg: &Message) -> anyhow::Result<()> {
+        let clients = CLIENTS.get().read().await;
+        let client = clients.get(user_id).ok_or_else(|| anyhow!("No matching user"))?;
+        
+        let serialized_msg = serde_json::to_string(msg).map_err(|e| anyhow!("Serialization error: {}", e))?;
+        
+        for sender in &client.senders {
+            if let Err(e) = sender.send(Ok(warp::ws::Message::text(serialized_msg.clone()))) {
+                eprintln!("Send error: {}", e);
             }
         }
-    
+        
         Ok(())
     }
+
+    pub async fn get_clients() -> Vec<ClientInfo> {
+        let clients = CLIENTS.get().read().await;
+        clients.iter().map(|(user_id, client)| ClientInfo {
+            user_id: user_id.clone(),
+            subscriptions: client.subscriptions.clone(),
+            sender_count: client.senders.len(),
+        }).collect()
+    }
+    
 }
 
 async fn handle_connection<R>(
     websocket: WebSocket,
-    users: Users,
     router: R,
-) where R: RouterFunction,
+    user_id: String,
+) where R: RouterFunction + Clone + 'static,
 {
-    let (user_ws_tx, mut user_ws_rx) = websocket.split();
-    let user_ws_tx = Arc::new(Mutex::new(user_ws_tx));
-    let (tx, rx) = mpsc::unbounded_channel();
-    let rx_stream = UnboundedReceiverStream::new(rx);
+    let (mut ws_tx, mut ws_rx) = websocket.split();
+    let (resp_tx, mut resp_rx) = mpsc::unbounded_channel::<Result<WebSocketMessage, warp::Error>>();
 
-    let user_id = "user_id_example".to_string(); // This should be uniquely generated or identified
-    users.write().await.insert(user_id.clone(), tx);
-
-    let user_ws_tx_clone = user_ws_tx.clone();
-    let process_incoming = user_ws_rx.for_each(move |message| {
-        let user_ws_tx = user_ws_tx_clone.clone();
-        async move {
-            if let Ok(msg) = message {
-                if let Ok(message_str) = msg.to_str() {
-                    if let Ok(message) = serde_json::from_str::<Message>(message_str) {
-                        let response = router.route(message).await;
-                        if let Ok(response_str) = serde_json::to_string(&response) {
-                            let ws_response = WebSocketMessage::text(response_str);
-                            let mut tx = user_ws_tx.lock().await;
-                            if let Err(e) = tx.send(ws_response).await {
-                                eprintln!("Error sending response: {}", e);
+    // Adding the new sender to the client's list of connections
+    {
+        let clients = CLIENTS.get();
+        let mut clients_lock = clients.write().await;
+        clients_lock.entry(user_id.clone())
+            .or_insert_with(Client::default)
+            .senders.push(resp_tx.clone());
+        println!("added to clients: {:?}", clients_lock);
+    }
+    
+    // Incoming message handling
+    let router_clone = router.clone();
+    let process_incoming = async move {
+        while let Some(result) = ws_rx.next().await {
+            match result {
+                Ok(msg) => {
+                    if let Ok(message_str) = msg.to_str() {
+                        if let Ok(message) = serde_json::from_str::<Message>(message_str) {
+                            let response = router_clone.route(message).await;
+                            if let Ok(response_str) = serde_json::to_string(&response) {
+                                let _ = resp_tx.send(Ok(WebSocketMessage::text(response_str)));
                             }
                         }
                     }
-                }
+                },
+                Err(e) => eprintln!("WebSocket receive error: {:?}", e),
             }
         }
-    });
+    };
 
-    let process_outgoing = async move {
-        let mut rx_stream = rx_stream;
-        while let Some(message_result) = rx_stream.next().await {
-            match message_result {
-                Ok(message) => {
-                    let mut lock = user_ws_tx.lock().await;
-                    if let Err(e) = lock.send(message).await {
-                        eprintln!("Error sending message: {}", e);
-                    }
-                },
-                Err(e) => eprintln!("Error preparing message for sending: {}", e),
+    // Outgoing message handling
+    let send_responses = async move {
+        while let Some(response) = resp_rx.recv().await {
+            if let Ok(msg) = response {
+                if ws_tx.send(msg).await.is_err() {
+                    eprintln!("WebSocket send error");
+                    break;
+                }
             }
         }
     };
 
     tokio::select! {
-        _ = process_incoming => (),
-        _ = process_outgoing => (),
-    }
+        _ = process_incoming => {},
+        _ = send_responses => {},
+    };
 
-    // Assuming removal is handled correctly elsewhere or after the loop
-    users.write().await.remove(&user_id);
+    // Clean up after disconnection
+    let clients = CLIENTS.get();
+
+    let mut clients_lock = clients.write().await;
+    if let Some(client) = clients_lock.get_mut(&user_id) {
+        println!("Cleaning up clients for user_id: {}", user_id);
+        // Retain senders that are NOT closed (i.e., still active)
+        client.senders.retain(|sender| !sender.is_closed());
+        println!("Active senders remaining for client: {:?}", client.senders.len());
+    
+        if client.senders.is_empty() {
+            println!("No active senders left for {}, removing client.", user_id);
+            clients_lock.remove(&user_id);
+        } else {
+            println!("There are still active senders for {}, not removing client.", user_id);
+        }
+    }
+    
 }
