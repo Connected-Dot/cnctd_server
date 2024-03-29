@@ -22,6 +22,13 @@ pub struct ClientInfo {
     sender_count: usize,
 }
 
+#[derive(Debug, Deserialize)]
+struct QueryParams {
+    user_id: Option<String>,
+    subs: Option<String>,
+}
+
+
 #[derive(Debug, Clone)]
 pub struct Client {
     pub subscriptions: Vec<String>,
@@ -51,13 +58,18 @@ impl CnctdSocket {
     
         let websocket_route = warp::ws()
             .and(warp::any().map(move || router.clone()))
-            .and(warp::query::<HashMap<String, String>>())
-            .map(|ws: Ws, router: R, params: HashMap<String, String>| -> Box<dyn warp::Reply> {
-                // Now the parameters are in the correct order: ws, router, params
-                if let Some(user_id) = params.get("user_id") {
-                    let user_id_cloned = user_id.clone();
+            .and(warp::query::<QueryParams>())
+            .map(|ws: Ws, router: R, params: QueryParams| -> Box<dyn warp::Reply> {
+                if let Some(user_id) = params.user_id {
+                    // Split the subscriptions string into a Vec<String>, default to an empty Vec if none provided
+                    let subscriptions = params.subs.unwrap_or_default()
+                        .trim_matches(|c| c == '[' || c == ']') // Remove the leading and trailing brackets
+                        .split(',') // Split by commas
+                        .map(|s| s.trim().to_string()) // Trim any whitespace around the names and convert to String
+                        .collect();
+                    
                     Box::new(ws.on_upgrade(move |socket| {
-                        handle_connection(socket, router, user_id_cloned)
+                        handle_connection(socket, router, user_id, subscriptions)
                     })) as Box<dyn warp::Reply>
                 } else {
                     Box::new(warp::reply::with_status("user_id is required", StatusCode::BAD_REQUEST)) as Box<dyn warp::Reply>
@@ -75,25 +87,17 @@ impl CnctdSocket {
         Ok(())
     }
 
-    // pub async fn broadcast_message(msg: Message) -> anyhow::Result<()> {
-    //     let clients = CLIENTS.get().read().await;
+    pub async fn broadcast_message(msg: &Message) -> anyhow::Result<()> {
+        let clients = CLIENTS.get().read().await;
         
-    //     if let Some(user_id) = user_id {
-    //         if let Some(client) = clients.get(&user_id) {
-    //             if let Some(sender) = &client.sender {
-    //                 sender.send(Ok(WebSocketMessage::text(message))).ok();
-    //             }
-    //         }
-    //     } else {
-    //         for client in clients.values() {
-    //             if let Some(sender) = &client.sender {
-    //                 sender.send(Ok(WebSocketMessage::text(message.clone()))).ok();
-    //             }
-    //         }
-    //     }
+        for (user_id, client) in clients.iter() {
+            if client.subscriptions.contains(&msg.channel) {
+                Self::message_user(&user_id, &msg).await?;
+            }
+        }
     
-    //     Ok(())
-    // }
+        Ok(())
+    }
 
     pub async fn message_user(user_id: &str, msg: &Message) -> anyhow::Result<()> {
         let clients = CLIENTS.get().read().await;
@@ -125,6 +129,7 @@ async fn handle_connection<R>(
     websocket: WebSocket,
     router: R,
     user_id: String,
+    subscriptions: Vec<String>
 ) where R: RouterFunction + Clone + 'static,
 {
     let (mut ws_tx, mut ws_rx) = websocket.split();
@@ -134,11 +139,13 @@ async fn handle_connection<R>(
     {
         let clients = CLIENTS.get();
         let mut clients_lock = clients.write().await;
-        clients_lock.entry(user_id.clone())
-            .or_insert_with(Client::default)
-            .senders.push(resp_tx.clone());
-        println!("added to clients: {:?}", clients_lock);
+        let client = clients_lock.entry(user_id.clone())
+            .or_insert_with(Client::default);
+        client.senders.push(resp_tx.clone());
+        client.subscriptions = subscriptions.clone(); // Set the subscriptions for the client
+        println!("Added to clients: {:?}", clients_lock);
     }
+
     
     // Incoming message handling
     let router_clone = router.clone();
