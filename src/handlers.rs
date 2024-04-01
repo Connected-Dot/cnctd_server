@@ -1,8 +1,9 @@
 use std::sync::Arc;
+use std::fmt::Debug;
 use serde::{de::DeserializeOwned, Serialize};
 use warp::reject::Rejection;
 
-use crate::{message::Message, router::RouterFunction};
+use crate::router::RestRouterFunction;
 
 pub type Result<T> = std::result::Result<T, Rejection>;
 
@@ -17,21 +18,24 @@ where
 pub struct Handler;
 
 impl Handler {
-    pub async fn post<R>(msg: Message, router: Arc<R>) -> Result<impl warp::Reply>
+    pub async fn post<M, Resp, R>(msg: M, auth_token: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
     where
-        R: RouterFunction,
+        M: Serialize + DeserializeOwned + Send + Sync + Debug + Clone, 
+        Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone, 
+        R: RestRouterFunction<M, Resp>,
     {
-        println!("post message...channel: {}, instruction: {}", msg.channel, msg.instruction);
-        let response = router.route(msg).await;
+        let response = router.route(msg, auth_token).await;
         Ok(warp::reply::json(&response))
     }
     
-    pub async fn get<R>(msg: Message, router: Arc<R>) -> Result<impl warp::Reply>
+    pub async fn get<M, Resp, R>(msg: M, auth_token: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
     where
-        R: RouterFunction,
+        M: Serialize + DeserializeOwned + Send + Sync + Debug + Clone,
+        Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone, 
+        R: RestRouterFunction<M, Resp>,
+        
     {
-        println!("get message...channel: {}, instruction: {}", msg.channel, msg.instruction);
-        let response = router.route(msg).await;
+        let response = router.route(msg, auth_token).await;
     
         Ok(warp::reply::json(&response))
     }

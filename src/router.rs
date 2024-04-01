@@ -1,7 +1,22 @@
 use std::{future::Future, pin::Pin};
+use std::fmt::Debug;
+use serde::{Deserialize, Serialize};
 
-use crate::{message::Message, response::Response};
 
-pub trait RouterFunction: Send + Sync + Clone + Copy {
-    fn route(&self, msg: Message) -> Pin<Box<dyn Future<Output = Response> + Send>>;
+pub trait RestRouterFunction<M, Resp>: Send + Sync + Clone
+where
+    Self: Send + Sync + Clone,
+    M: Serialize + for<'de> Deserialize<'de> + Clone + Debug,
+    Resp: Serialize + for<'de> Deserialize<'de> + Clone + Debug,
+{
+    fn route(&self, msg: M, auth_token: Option<String>) -> Pin<Box<dyn Future<Output = Resp> + Send>>;
+}
+
+pub trait SocketRouterFunction<M, Resp>: Send + Sync + Clone
+where
+    Self: Send + Sync + Clone,
+    M: Serialize + for<'de> Deserialize<'de> + Clone + Debug,
+    Resp: Serialize + for<'de> Deserialize<'de> + Clone + Debug,
+{
+    fn route(&self, msg: M) -> Pin<Box<dyn Future<Output = Resp> + Send>>;
 }

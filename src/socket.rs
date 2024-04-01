@@ -1,19 +1,19 @@
 use anyhow::anyhow;
-use futures_util::{FutureExt, SinkExt, StreamExt};
+use futures_util::{SinkExt, StreamExt};
 use local_ip_address::local_ip;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use state::InitCell;
-use tokio_stream::wrappers::UnboundedReceiverStream;
 use warp::filters::ws::Ws;
 use warp::ws::{Message as WebSocketMessage, WebSocket};
 use warp::Filter;
 use warp::http::StatusCode;
 use std::collections::HashMap;
-use tokio::sync::{mpsc, Mutex, RwLock};
-use std::sync::Arc;
+use tokio::sync::{mpsc, RwLock};
+use std::{sync::Arc, fmt::Debug};
 
 use crate::message::Message;
-use crate::router::RouterFunction;
+use crate::router::SocketRouterFunction;
 
 #[derive(Serialize, Deserialize)]
 pub struct ClientInfo {
@@ -49,9 +49,11 @@ static CLIENTS: InitCell<Arc<RwLock<HashMap<String, Client>>>> = InitCell::new()
 pub struct CnctdSocket;
 
 impl CnctdSocket {
-    pub async fn start<R>(port: &str, router: R) -> anyhow::Result<()>
+    pub async fn start<M, Resp, R>(port: &str, router: R) -> anyhow::Result<()>
     where
-        R: RouterFunction + Clone + 'static,
+        M: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static,
+        Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static, 
+        R: SocketRouterFunction<M, Resp> + 'static,
     {
 
         CLIENTS.set(Arc::new(RwLock::new(HashMap::new())));
@@ -125,12 +127,15 @@ impl CnctdSocket {
     
 }
 
-async fn handle_connection<R>(
+async fn handle_connection<M, Resp, R>(
     websocket: WebSocket,
     router: R,
     user_id: String,
     subscriptions: Vec<String>
-) where R: RouterFunction + Clone + 'static,
+) where 
+    M: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static,
+    Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static, 
+    R: SocketRouterFunction<M, Resp> + 'static,
 {
     let (mut ws_tx, mut ws_rx) = websocket.split();
     let (resp_tx, mut resp_rx) = mpsc::unbounded_channel::<Result<WebSocketMessage, warp::Error>>();
@@ -154,7 +159,7 @@ async fn handle_connection<R>(
             match result {
                 Ok(msg) => {
                     if let Ok(message_str) = msg.to_str() {
-                        if let Ok(message) = serde_json::from_str::<Message>(message_str) {
+                        if let Ok(message) = serde_json::from_str::<M>(message_str) {
                             let response = router_clone.route(message).await;
                             if let Ok(response_str) = serde_json::to_string(&response) {
                                 let _ = resp_tx.send(Ok(WebSocketMessage::text(response_str)));

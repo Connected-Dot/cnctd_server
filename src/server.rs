@@ -1,18 +1,20 @@
-use std::{collections::HashMap, sync::{Arc, Mutex}, time::Duration};
+use std::{sync::Arc, time::Duration, fmt::Debug};
 
 use local_ip_address::local_ip;
 use serde::{de::DeserializeOwned, Serialize};
-use warp::{filters::ws::WebSocket, Filter};
+use warp::Filter;
 
-use crate::{handlers::{Handler, RedirectHandler}, message::Message, router::RouterFunction, utils::{cors, spa}};
+use crate::{handlers::{Handler, RedirectHandler}, router::RestRouterFunction, utils::{cors, spa}};
 
 pub struct CnctdServer;
 
 impl CnctdServer {
-    pub async fn start<R>(port: &str, client_dir: Option<String>, router: R) 
+    pub async fn start<M, Resp, R>(port: &str, client_dir: Option<String>, router: R) 
     -> anyhow::Result<()>
     where
-        R: RouterFunction + 'static
+        M: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static,
+        Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static, 
+        R: RestRouterFunction<M, Resp> + 'static,
     {
         let router = Arc::new(router);
 
@@ -25,17 +27,23 @@ impl CnctdServer {
         let rest_route = warp::path::end()
         .and(
             warp::post()
+                .and(warp::header::optional("Authorization"))
                 .and(warp::body::json())
-                .and_then(move |msg| {
+                .and_then(move |auth_header: Option<String>, msg: M| {
                     let router_clone = cloned_router_for_post.clone();
-                    Handler::post(msg, router_clone)
+                    async move {
+                        Handler::post(msg, auth_header, router_clone).await
+                    }
                 })
             .or(
                 warp::get()
-                    .and(warp::query::<Message>())
-                    .and_then(move |msg| {
+                    .and(warp::header::optional("Authorization"))
+                    .and(warp::query::<M>())
+                    .and_then(move |auth_header: Option<String>, msg: M| {
                         let router_clone = cloned_router_for_get.clone();
-                        Handler::get(msg, router_clone)
+                        async move {
+                            Handler::get(msg, auth_header, router_clone).await
+                        }
                     })
             )
         );
