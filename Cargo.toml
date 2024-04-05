@@ -1,6 +1,6 @@
 [package]
 name = "cnctd_server"
-version = "0.1.20"
+version = "0.1.21"
 edition = "2021"
 authors = ["Connected Dot Inc.", "Kyle Ebner <kyle@cnctd.world>"]
 description = "Collection of server APIs"
@@ -13,10 +13,14 @@ keywords = ["module"]
 [dependencies]
 anyhow = "1.0.75"
 futures-util = "0.3.30"
-local-ip-address = "0.5.6"
+hmac = "0.12.1"
+jwt = "0.16.0"
+local-ip-address = "0.6.1"
 serde = { version = "1.0.188", features = ["derive"] }
 serde_json = "1.0.107"
+sha2 = "0.10.8"
 state = "0.6.0"
 tokio = { version = "1.35.1", features = ["full"] }
 tokio-stream = "0.1.15"
+uuid = { version = "1.8.0", features = ["v4"]}
 warp = "0.3.6"
