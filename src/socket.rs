@@ -25,15 +25,13 @@ impl Reject for NoClientId {}
 pub struct SocketConfig<R> {
     pub router: R,
     pub secret: Option<Vec<u8>>,
-    pub redis_url: Option<String>,
 }
 
 impl<R> SocketConfig<R> {
-    pub fn new(router: R, secret: Option<Vec<u8>>, redis_url: Option<String>) -> Self {
+    pub fn new(router: R, secret: Option<Vec<u8>>) -> Self {
         Self {
             router,
             secret,
-            redis_url
         }
     }
 }
@@ -122,7 +120,7 @@ impl CnctdSocket {
         routes.boxed()
 
     }
-    pub async fn start<M, Resp, R>(port: &str, router: R, secret: Option<Vec<u8>>, redis_url: Option<String>) -> anyhow::Result<()>
+    pub async fn start<M, Resp, R>(port: &str, router: R, secret: Option<Vec<u8>>) -> anyhow::Result<()>
     where
         M: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static,
         Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static, 
@@ -135,7 +133,7 @@ impl CnctdSocket {
         let ip_address: [u8; 4] = [0, 0, 0, 0];
         let parsed_port = port.parse::<u16>()?;
         let socket_addr = std::net::SocketAddr::from((ip_address, parsed_port));
-        let config = SocketConfig::new(router, secret, redis_url);
+        let config = SocketConfig::new(router, secret);
         let routes = Self::build_route(config);
 
         warp::serve(routes).run(socket_addr).await;

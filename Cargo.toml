@@ -12,14 +12,19 @@ keywords = ["module"]
 
 [dependencies]
 anyhow = "1.0.75"
+chrono = { version = "0.4.37", features = ["serde"]}
+cnctd_redis = { version = "0.1.4", path = "../cnctd_redis" }
 futures-util = "0.3.30"
 hmac = "0.12.1"
 jwt = "0.16.0"
 local-ip-address = "0.6.1"
+r2d2 = "0.8.10"
+r2d2_redis = "0.14.0"
 serde = { version = "1.0.188", features = ["derive"] }
 serde_json = "1.0.107"
 sha2 = "0.10.8"
 state = "0.6.0"
+sys-info = "0.9.1"
 tokio = { version = "1.35.1", features = ["full"] }
 tokio-stream = "0.1.15"
 uuid = { version = "1.8.0", features = ["v4"]}

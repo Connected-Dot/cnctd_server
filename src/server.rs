@@ -7,24 +7,34 @@ use local_ip_address::local_ip;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use sha2::Sha256;
+
+use tokio::sync::RwLock;
 use warp::Filter;
 
-use crate::{handlers::{Handler, RedirectHandler}, router::{RestRouterFunction, SocketRouterFunction}, socket::{CnctdSocket, SocketConfig}, utils::{cors, spa}};
+use crate::{
+    handlers::{Handler, RedirectHandler}, router::{RestRouterFunction, SocketRouterFunction}, server_info::{ServerInfo, SERVER_INFO}, socket::{CnctdSocket, SocketConfig}, utils::{cors, spa}
+};
+
+
+
 
 #[derive(Debug)]
 pub struct ServerConfig<R> {
     pub port: String,
     pub client_dir: Option<String>,
     pub router: R,
-
+    pub heartbeat: Option<Duration>,
+    pub redis_url: Option<String>,
 }
 
 impl<R> ServerConfig<R> {
-    pub fn new(port: &str, client_dir: Option<String>, router: R) -> Self {
+    pub fn new(port: &str, client_dir: Option<String>, router: R, heartbeat: Option<u64>, redis_url: Option<String>) -> Self {
         Self {
             port: port.into(),
             client_dir,
             router,
+            heartbeat: heartbeat.map(Duration::from_secs),
+            redis_url,
         }
     }
 }
@@ -51,6 +61,11 @@ impl CnctdServer {
         let parsed_port = server_config.port.parse::<u16>()?;
         let socket = std::net::SocketAddr::from((ip_address, parsed_port));
 
+        if server_config.redis_url.is_some() {
+            let redis_url = server_config.redis_url.unwrap();
+            println!("REDIS URL: {:?}", redis_url);
+            let _ = cnctd_redis::CnctdRedis::start_pool(&redis_url)?;
+        }
         
 
         match socket_config {
@@ -62,7 +77,21 @@ impl CnctdServer {
                     .with(cors())
                     .boxed();
                 
-                println!("server and socket running at http://{}:{}", my_local_ip, server_config.port);
+                let server_info = Arc::new(RwLock::new(ServerInfo::new(&my_local_ip.to_string(), parsed_port, 100, true)));
+                
+                println!("server and socket running:\n{:?}", server_info);
+                
+                SERVER_INFO.set(server_info);
+                
+                if server_config.heartbeat.is_some() {
+                    let heartbeat = server_config.heartbeat.unwrap();
+                    tokio::spawn(async move {
+                        loop {
+                            tokio::time::sleep(heartbeat).await;
+                            ServerInfo::update().await.unwrap();
+                        }
+                    });
+                }
                 
                 warp::serve(routes).run(socket).await;
             }
@@ -73,7 +102,23 @@ impl CnctdServer {
                     .with(cors())
                     .boxed();
 
-                println!("server running at http://{}:{}", my_local_ip, server_config.port);
+                let server_info = Arc::new(RwLock::new(ServerInfo::new(&my_local_ip.to_string(), parsed_port, 100, false)));
+                
+                println!("server running:\n{:?}", server_info);
+
+                SERVER_INFO.set(server_info);
+                
+                if server_config.heartbeat.is_some() {
+                    let heartbeat = server_config.heartbeat.unwrap();
+                    tokio::spawn(async move {
+                        loop {
+                            tokio::time::sleep(heartbeat).await;
+                            ServerInfo::update().await.unwrap();
+                        }
+                    });
+                }
+
+                
 
                 warp::serve(routes).run(socket).await;
             }
