@@ -51,16 +51,18 @@ impl CnctdServer {
         let parsed_port = server_config.port.parse::<u16>()?;
         let socket = std::net::SocketAddr::from((ip_address, parsed_port));
 
-        println!("server running at http://{}:{}", my_local_ip, server_config.port);
+        
 
         match socket_config {
             Some(config) => {
                 let rest_routes = Self::build_routes::<M, Resp, R>(&server_router);
                 let routes = rest_routes
-                    .or(CnctdSocket::build_route(config.router, config.secret))
+                    .or(CnctdSocket::build_route(config))
                     .or(web_app)
                     .with(cors())
                     .boxed();
+                
+                println!("server and socket running at http://{}:{}", my_local_ip, server_config.port);
                 
                 warp::serve(routes).run(socket).await;
             }
@@ -70,7 +72,9 @@ impl CnctdServer {
                     .or(web_app)
                     .with(cors())
                     .boxed();
-                
+
+                println!("server running at http://{}:{}", my_local_ip, server_config.port);
+
                 warp::serve(routes).run(socket).await;
             }
         }
