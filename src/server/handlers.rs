@@ -5,7 +5,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
 use warp::reject::Rejection;
 
-use crate::{response::Response, router::RestRouterFunction, server::CnctdServer, socket::{Client, CnctdSocket, CLIENTS}};
+use crate::{router::{response::Response, RestRouterFunction}, server::CnctdServer, socket::{Client, CnctdSocket, CLIENTS}};
 
 pub type Result<T> = std::result::Result<T, Rejection>;
 

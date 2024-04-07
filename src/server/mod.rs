@@ -1,3 +1,6 @@
+pub mod server_info;
+pub mod handlers;
+
 use std::{collections::BTreeMap, fmt::Debug, sync::Arc, time::Duration};
 
 use anyhow::anyhow;
@@ -12,8 +15,10 @@ use tokio::sync::RwLock;
 use warp::Filter;
 
 use crate::{
-    handlers::{Handler, RedirectHandler}, router::{RestRouterFunction, SocketRouterFunction}, server_info::{ServerInfo, SERVER_INFO}, socket::{CnctdSocket, SocketConfig}, utils::{cors, spa}
+    router::{RestRouterFunction, SocketRouterFunction}, server::server_info::{ServerInfo, SERVER_INFO}, socket::{CnctdSocket, SocketConfig}, utils::{cors, spa}
 };
+
+use self::handlers::{Handler, RedirectHandler};
 
 
 
@@ -83,15 +88,15 @@ impl CnctdServer {
                 
                 SERVER_INFO.set(server_info);
                 
-                if server_config.heartbeat.is_some() {
-                    let heartbeat = server_config.heartbeat.unwrap();
-                    tokio::spawn(async move {
-                        loop {
-                            tokio::time::sleep(heartbeat).await;
-                            ServerInfo::update().await.unwrap();
-                        }
-                    });
-                }
+                // if server_config.heartbeat.is_some() {
+                //     let heartbeat = server_config.heartbeat.unwrap();
+                //     tokio::spawn(async move {
+                //         loop {
+                //             tokio::time::sleep(heartbeat).await;
+                //             ServerInfo::update().await.unwrap();
+                //         }
+                //     });
+                // }
                 
                 warp::serve(routes).run(socket).await;
             }
@@ -108,15 +113,15 @@ impl CnctdServer {
 
                 SERVER_INFO.set(server_info);
                 
-                if server_config.heartbeat.is_some() {
-                    let heartbeat = server_config.heartbeat.unwrap();
-                    tokio::spawn(async move {
-                        loop {
-                            tokio::time::sleep(heartbeat).await;
-                            ServerInfo::update().await.unwrap();
-                        }
-                    });
-                }
+                // if server_config.heartbeat.is_some() {
+                //     let heartbeat = server_config.heartbeat.unwrap();
+                //     tokio::spawn(async move {
+                //         loop {
+                //             tokio::time::sleep(heartbeat).await;
+                //             ServerInfo::update().await.unwrap();
+                //         }
+                //     });
+                // }
 
                 
 

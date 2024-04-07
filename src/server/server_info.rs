@@ -68,12 +68,16 @@ impl ServerInfo {
             server_info.current_connections = clients.len();
         }
         
-        CnctdRedis::set("server-info", server_info.clone())?;
+        // CnctdRedis::hset("server_info", &server_info.id, server_info.clone())?;
 
         Ok(())
     }
 
     pub fn get() -> Arc<RwLock<ServerInfo>> {
         SERVER_INFO.get().clone()
+    }
+
+    pub async fn get_server_id() -> String {
+        SERVER_INFO.get().read().await.id.clone()
     }
 }

@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use cnctd_redis::CnctdRedis;
 use futures_util::{SinkExt, StreamExt};
 use local_ip_address::local_ip;
 use serde::de::DeserializeOwned;
@@ -12,9 +13,10 @@ use std::collections::HashMap;
 use tokio::sync::{mpsc, RwLock};
 use std::{sync::Arc, fmt::Debug};
 
-use crate::handlers::{ClientQuery, Handler};
-use crate::message::Message;
+use crate::router::message::Message;
 use crate::router::SocketRouterFunction;
+use crate::server::handlers::{ClientQuery, Handler};
+use crate::server::server_info::ServerInfo;
 
 #[derive(Debug)]
 struct NoClientId;
@@ -36,12 +38,13 @@ impl<R> SocketConfig<R> {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ClientInfo {
     client_id: String,
     user_id: String,
     subscriptions: Vec<String>,
     connected: bool,
+    server_id: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -175,12 +178,25 @@ impl CnctdSocket {
 
     pub async fn get_clients() -> Vec<ClientInfo> {
         let clients = CLIENTS.get().read().await;
+        let server_id = ServerInfo::get_server_id().await;
         clients.iter().map(|(client_id, client)| ClientInfo {
             client_id: client_id.into(), 
             user_id: client.user_id.to_string(),
             subscriptions: client.subscriptions.clone(),
             connected: client.sender.is_some(),
+            server_id: server_id.clone(),
         }).collect()
+    }
+
+    pub async fn get_client_info(client_id: &str, client: Client) -> ClientInfo {
+        let server_id = ServerInfo::get_server_id().await;
+        ClientInfo {
+            client_id: client_id.into(), 
+            user_id: client.user_id.to_string(),
+            subscriptions: client.subscriptions.clone(),
+            connected: client.sender.is_some(),
+            server_id: server_id.clone(),
+        }
     }
     
     async fn handle_connection<M, Resp, R>(
@@ -202,6 +218,11 @@ impl CnctdSocket {
             if let Some(client) = clients_lock.get_mut(&client_id) {
                 // Update the sender for the client
                 client.sender = Some(resp_tx.clone());
+
+                match Self::push_client_to_redis(&client_id, &client.clone()).await {
+                    Ok(_) => println!("pajama party"),
+                    Err(e) => eprintln!("Error pushing client to Redis: {:?}", e),
+                }
                 println!("Updated client sender: {:?}", client);
             } else {
                 // Log error or handle case where client_id is not found
@@ -249,7 +270,11 @@ impl CnctdSocket {
     
         // Clean up after disconnection
         Self::remove_client(&client_id).await;
-        
+
+        match Self::remove_client_from_redis(&client_id).await {    
+            Ok(_) => {},
+            Err(e) => eprintln!("Error removing client from Redis: {:?}", e),
+        }
     }
 
     pub async fn remove_client(client_id: &str) {
@@ -273,6 +298,19 @@ impl CnctdSocket {
         let client = clients.get(client_id).ok_or_else(|| anyhow!("No matching client"))?;
 
         Ok(client.to_owned())
+    }
+
+    pub async fn push_client_to_redis(client_id: &str, client: &Client) -> anyhow::Result<()> {
+        let client_info = Self::get_client_info(client_id, client.clone()).await;
+        CnctdRedis::hset("clients", &client_id, client_info)?;
+
+        Ok(())
+    }
+
+    pub async fn remove_client_from_redis(client_id: &str) -> anyhow::Result<()> {
+        CnctdRedis::hset("clients", client_id, ())?;
+
+        Ok(())
     }
 }
 
