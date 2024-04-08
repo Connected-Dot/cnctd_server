@@ -29,7 +29,6 @@ pub struct ServerConfig<R> {
     pub client_dir: Option<String>,
     pub router: R,
     pub heartbeat: Option<Duration>,
-    pub redis_url: Option<String>,
 }
 
 impl<R> ServerConfig<R> {
@@ -39,7 +38,6 @@ impl<R> ServerConfig<R> {
             client_dir,
             router,
             heartbeat: heartbeat.map(Duration::from_secs),
-            redis_url,
         }
     }
 }
@@ -65,12 +63,6 @@ impl CnctdServer {
         let ip_address: [u8; 4] = [0, 0, 0, 0];
         let parsed_port = server_config.port.parse::<u16>()?;
         let socket = std::net::SocketAddr::from((ip_address, parsed_port));
-
-        if server_config.redis_url.is_some() {
-            let redis_url = server_config.redis_url.unwrap();
-            println!("REDIS URL: {:?}", redis_url);
-            let _ = cnctd_redis::CnctdRedis::start_pool(&redis_url)?;
-        }
         
 
         match socket_config {

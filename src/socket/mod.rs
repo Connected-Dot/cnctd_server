@@ -27,13 +27,15 @@ impl Reject for NoClientId {}
 pub struct SocketConfig<R> {
     pub router: R,
     pub secret: Option<Vec<u8>>,
+    pub redis_url: Option<String>,
 }
 
 impl<R> SocketConfig<R> {
-    pub fn new(router: R, secret: Option<Vec<u8>>) -> Self {
+    pub fn new(router: R, secret: Option<Vec<u8>>, redis_url: Option<String>) -> Self {
         Self {
             router,
             secret,
+            redis_url
         }
     }
 }
@@ -84,6 +86,22 @@ impl CnctdSocket {
     {
         CLIENTS.set(Arc::new(RwLock::new(HashMap::new())));
 
+        let mut redis = false;
+
+        match config.redis_url {
+            Some(url) => {
+                println!("REDIS URL: {:?}", url);
+                match cnctd_redis::CnctdRedis::start_pool(&url) {
+                    Ok(_) => redis = true,
+                    Err(e) => {
+                        eprintln!("Error starting Redis pool: {:?}", e);
+                        redis = false
+                    }
+                }
+            }
+            None => redis = false
+        };
+
         let registration_route = warp::path("register")
             .and(warp::get())
             .and(warp::header::optional("Authorization"))
@@ -113,7 +131,7 @@ impl CnctdSocket {
 
                     // Proceed with connection setup
                     Ok(ws.on_upgrade(move |socket| {
-                        Self::handle_connection(socket, router, client_id)
+                        Self::handle_connection(socket, router, client_id, redis)
                     }))
                 }
             });
@@ -123,7 +141,7 @@ impl CnctdSocket {
         routes.boxed()
 
     }
-    pub async fn start<M, Resp, R>(port: &str, router: R, secret: Option<Vec<u8>>) -> anyhow::Result<()>
+    pub async fn start<M, Resp, R>(port: &str, router: R, secret: Option<Vec<u8>>, redis_url: Option<String>) -> anyhow::Result<()>
     where
         M: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static,
         Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static, 
@@ -136,7 +154,7 @@ impl CnctdSocket {
         let ip_address: [u8; 4] = [0, 0, 0, 0];
         let parsed_port = port.parse::<u16>()?;
         let socket_addr = std::net::SocketAddr::from((ip_address, parsed_port));
-        let config = SocketConfig::new(router, secret);
+        let config = SocketConfig::new(router, secret, redis_url);
         let routes = Self::build_route(config);
 
         warp::serve(routes).run(socket_addr).await;
@@ -203,6 +221,7 @@ impl CnctdSocket {
         websocket: WebSocket,
         router: R,
         client_id: String,
+        redis: bool,
     ) where 
         M: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static,
         Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static, 
