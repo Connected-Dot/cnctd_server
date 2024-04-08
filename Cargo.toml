@@ -1,6 +1,6 @@
 [package]
 name = "cnctd_server"
-version = "0.1.24"
+version = "0.1.25"
 edition = "2021"
 authors = ["Connected Dot Inc.", "Kyle Ebner <kyle@cnctd.world>"]
 description = "Collection of server APIs"

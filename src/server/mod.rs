@@ -32,7 +32,7 @@ pub struct ServerConfig<R> {
 }
 
 impl<R> ServerConfig<R> {
-    pub fn new(port: &str, client_dir: Option<String>, router: R, heartbeat: Option<u64>, redis_url: Option<String>) -> Self {
+    pub fn new(port: &str, client_dir: Option<String>, router: R, heartbeat: Option<u64>) -> Self {
         Self {
             port: port.into(),
             client_dir,
