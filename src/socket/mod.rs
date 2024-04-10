@@ -336,5 +336,31 @@ impl CnctdSocket {
 
         Ok(())
     }
+
+    pub async fn add_subscription(client_id: &str, channel: &str) -> anyhow::Result<()> {
+        let clients = CLIENTS.get();
+        let mut clients_lock = clients.write().await;
+    
+        if let Some(client) = clients_lock.get_mut(client_id) {
+            if !client.subscriptions.contains(&channel.to_string()) {
+                client.subscriptions.push(channel.to_string());
+            }
+        }
+    
+        Ok(())
+    }
+
+    pub async fn remove_subscription(client_id: &str, channel: &str) -> anyhow::Result<()> {
+        let clients = CLIENTS.get();
+        let mut clients_lock = clients.write().await;
+    
+        if let Some(client) = clients_lock.get_mut(client_id) {
+            if let Some(index) = client.subscriptions.iter().position(|sub| sub == channel) {
+                client.subscriptions.remove(index);
+            }
+        }
+    
+        Ok(())
+    }
 }
 
