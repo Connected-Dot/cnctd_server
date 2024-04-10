@@ -3,16 +3,18 @@ use std::sync::Arc;
 use chrono::{DateTime, Utc};
 use cnctd_redis::CnctdRedis;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use state::InitCell;
 use tokio::sync::RwLock;
 
-use crate::socket::CnctdSocket;
+use crate::{router::message::Message, socket::{CnctdSocket, CLIENTS}};
 
 pub static SERVER_INFO: InitCell<Arc<RwLock<ServerInfo>>> = InitCell::new();
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ServerInfo {
     pub id: String,
+    pub session_id: String,
     pub ip_address: String,
     pub port: u16,
     pub last_heartbeat: DateTime<Utc>,
@@ -23,6 +25,7 @@ pub struct ServerInfo {
     pub max_connections: usize,
     pub current_connections: usize,
     pub websocket: bool,
+    pub redis_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
@@ -33,10 +36,11 @@ pub enum ServerStatus {
 }
 
 impl ServerInfo {
-    pub fn new(ip_address: &str, port: u16, max_connections: usize, websocket: bool) -> Self {
-        let id = uuid::Uuid::new_v4();
-        Self {
+    pub fn new(id: &str, ip_address: &str, port: u16, max_connections: usize, websocket: bool, redis_url: Option<String>) -> Arc<RwLock<Self>> {
+        let session_id = uuid::Uuid::new_v4();
+        let server_info = Self {
             id: id.into(),
+            session_id: session_id.to_string(),
             ip_address: ip_address.into(),
             port,
             last_heartbeat: Utc::now(),
@@ -46,8 +50,16 @@ impl ServerInfo {
             status: ServerStatus::Active,
             max_connections,
             current_connections: 0,
-            websocket
+            websocket,
+            redis_url
+        };
+        if server_info.redis_url.is_some() {
+            match CnctdRedis::hset("server_info", &server_info.id, server_info.clone()) {
+                Ok(_) => (),
+                Err(e) => eprintln!("Error setting server info in Redis: {}", e),
+            }   
         }
+        Arc::new(RwLock::new(server_info))
     }
 
     pub async fn update() -> anyhow::Result<()> {
@@ -64,11 +76,15 @@ impl ServerInfo {
         })?;
 
         if server_info.websocket {
-            let clients = CnctdSocket::get_clients().await;
+            let clients = CLIENTS.get().read().await;
             server_info.current_connections = clients.len();
+            let msg = Message::new("server-info", "update", Some(json!(server_info.clone())));
+            CnctdSocket::broadcast_message(&msg).await?;
         }
         
-        // CnctdRedis::hset("server_info", &server_info.id, server_info.clone())?;
+        if server_info.redis_url.is_some() {
+            CnctdRedis::hset("server_info", &server_info.id, server_info.clone())?;
+        }
 
         Ok(())
     }

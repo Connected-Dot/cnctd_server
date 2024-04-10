@@ -10,8 +10,6 @@ use local_ip_address::local_ip;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use sha2::Sha256;
-
-use tokio::sync::RwLock;
 use warp::Filter;
 
 use crate::{
@@ -25,6 +23,7 @@ use self::handlers::{Handler, RedirectHandler};
 
 #[derive(Debug)]
 pub struct ServerConfig<R> {
+    pub id: String,
     pub port: String,
     pub client_dir: Option<String>,
     pub router: R,
@@ -32,8 +31,9 @@ pub struct ServerConfig<R> {
 }
 
 impl<R> ServerConfig<R> {
-    pub fn new(port: &str, client_dir: Option<String>, router: R, heartbeat: Option<u64>) -> Self {
+    pub fn new(id: &str, port: &str, client_dir: Option<String>, router: R, heartbeat: Option<u64>) -> Self {
         Self {
+            id: id.into(),
             port: port.into(),
             client_dir,
             router,
@@ -69,26 +69,38 @@ impl CnctdServer {
             Some(config) => {
                 let rest_routes = Self::build_routes::<M, Resp, R>(&server_router);
                 let routes = rest_routes
-                    .or(CnctdSocket::build_route(config))
+                    .or(CnctdSocket::build_route(config.clone()))
                     .or(web_app)
                     .with(cors())
                     .boxed();
                 
-                let server_info = Arc::new(RwLock::new(ServerInfo::new(&my_local_ip.to_string(), parsed_port, 100, true)));
+                let server_info = ServerInfo::new(
+                    &server_config.id, 
+                    &my_local_ip.to_string(), 
+                    parsed_port, 
+                    100, 
+                    true,
+                    config.redis_url.clone(),
+                );
                 
                 println!("server and socket running:\n{:?}", server_info);
                 
                 SERVER_INFO.set(server_info);
                 
-                // if server_config.heartbeat.is_some() {
-                //     let heartbeat = server_config.heartbeat.unwrap();
-                //     tokio::spawn(async move {
-                //         loop {
-                //             tokio::time::sleep(heartbeat).await;
-                //             ServerInfo::update().await.unwrap();
-                //         }
-                //     });
-                // }
+                if server_config.heartbeat.is_some() {
+                    let heartbeat = server_config.heartbeat.unwrap();
+                    tokio::spawn(async move {
+                        loop {
+                            tokio::time::sleep(heartbeat).await;
+                            match ServerInfo::update().await {
+                                Ok(_) => {},
+                                Err(e) => {
+                                    eprintln!("Error updating server info: {:?}", e);
+                                }
+                            }
+                        }
+                    });
+                }
                 
                 warp::serve(routes).run(socket).await;
             }
@@ -99,21 +111,28 @@ impl CnctdServer {
                     .with(cors())
                     .boxed();
 
-                let server_info = Arc::new(RwLock::new(ServerInfo::new(&my_local_ip.to_string(), parsed_port, 100, false)));
+                let server_info = ServerInfo::new(
+                    &server_config.id, 
+                    &my_local_ip.to_string(), 
+                    parsed_port, 
+                    100, 
+                    true,
+                    None,
+                );
                 
                 println!("server running:\n{:?}", server_info);
 
                 SERVER_INFO.set(server_info);
                 
-                // if server_config.heartbeat.is_some() {
-                //     let heartbeat = server_config.heartbeat.unwrap();
-                //     tokio::spawn(async move {
-                //         loop {
-                //             tokio::time::sleep(heartbeat).await;
-                //             ServerInfo::update().await.unwrap();
-                //         }
-                //     });
-                // }
+                if server_config.heartbeat.is_some() {
+                    let heartbeat = server_config.heartbeat.unwrap();
+                    tokio::spawn(async move {
+                        loop {
+                            tokio::time::sleep(heartbeat).await;
+                            ServerInfo::update().await.unwrap();
+                        }
+                    });
+                }
 
                 
 

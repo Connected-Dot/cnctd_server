@@ -23,7 +23,7 @@ struct NoClientId;
 
 impl Reject for NoClientId {}
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SocketConfig<R> {
     pub router: R,
     pub secret: Option<Vec<u8>>,
@@ -238,9 +238,11 @@ impl CnctdSocket {
                 // Update the sender for the client
                 client.sender = Some(resp_tx.clone());
 
-                match Self::push_client_to_redis(&client_id, &client.clone()).await {
-                    Ok(_) => println!("pajama party"),
-                    Err(e) => eprintln!("Error pushing client to Redis: {:?}", e),
+                if redis {
+                    match Self::push_client_to_redis(&client_id, &client.clone()).await {
+                        Ok(_) => println!("pajama party"),
+                        Err(e) => eprintln!("Error pushing client to Redis: {:?}", e),
+                    }
                 }
                 println!("Updated client sender: {:?}", client);
             } else {
@@ -290,10 +292,13 @@ impl CnctdSocket {
         // Clean up after disconnection
         Self::remove_client(&client_id).await;
 
-        match Self::remove_client_from_redis(&client_id).await {    
-            Ok(_) => {},
-            Err(e) => eprintln!("Error removing client from Redis: {:?}", e),
+        if redis {
+            match Self::remove_client_from_redis(&client_id).await {    
+                Ok(_) => {},
+                Err(e) => eprintln!("Error removing client from Redis: {:?}", e),
+            }
         }
+        
     }
 
     pub async fn remove_client(client_id: &str) {
