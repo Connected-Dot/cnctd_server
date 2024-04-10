@@ -16,3 +16,31 @@ impl Response {
         Self { success: false, msg, data }
     }
 }
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SocketResponse {
+    pub success: bool,
+    pub msg: Option<String>,
+    pub data: Option<Value>,
+    pub response_channel: String,
+}
+
+impl SocketResponse {
+    pub fn success(msg: Option<String>, data: Option<Value>, response_channel: String) -> Self {
+        Self {
+            success: true,
+            msg,
+            data,
+            response_channel
+        }
+    }
+
+    pub fn failure(msg: Option<String>, data: Option<Value>, response_channel: String) -> Self {
+        Self {
+            success: false,
+            msg,
+            data,
+            response_channel
+        }
+    }
+}

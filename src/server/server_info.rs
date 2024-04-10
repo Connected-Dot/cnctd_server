@@ -15,7 +15,8 @@ pub static SERVER_INFO: InitCell<Arc<RwLock<ServerInfo>>> = InitCell::new();
 pub struct ServerInfo {
     pub id: String,
     pub session_id: String,
-    pub ip_address: String,
+    pub local_ip: String,
+    pub public_ip: String,
     pub port: u16,
     pub last_heartbeat: DateTime<Utc>,
     pub start_time: DateTime<Utc>,
@@ -36,12 +37,17 @@ pub enum ServerStatus {
 }
 
 impl ServerInfo {
-    pub fn new(id: &str, ip_address: &str, port: u16, max_connections: usize, websocket: bool, redis_url: Option<String>) -> Arc<RwLock<Self>> {
+    pub async fn new(id: &str, local_ip: &str, port: u16, max_connections: usize, websocket: bool, redis_url: Option<String>) -> Arc<RwLock<Self>> {
         let session_id = uuid::Uuid::new_v4();
+        let public_ip = match public_ip::addr().await {
+            Some(ip) => ip.to_string(),
+            None => "".to_string(),
+        };
         let server_info = Self {
             id: id.into(),
             session_id: session_id.to_string(),
-            ip_address: ip_address.into(),
+            local_ip: local_ip.into(),
+            public_ip,
             port,
             last_heartbeat: Utc::now(),
             start_time: Utc::now(),
@@ -78,7 +84,7 @@ impl ServerInfo {
         if server_info.websocket {
             let clients = CLIENTS.get().read().await;
             server_info.current_connections = clients.len();
-            let msg = Message::new("server-info", "update", Some(json!(server_info.clone())));
+            let msg = Message::new("server-info", "heartbeat", Some(json!(server_info.clone())));
             CnctdSocket::broadcast_message(&msg).await?;
         }
         

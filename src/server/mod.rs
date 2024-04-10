@@ -81,9 +81,10 @@ impl CnctdServer {
                     100, 
                     true,
                     config.redis_url.clone(),
-                );
-                
-                println!("server and socket running:\n{:?}", server_info);
+                ).await;
+
+                println!("server and socket running at http://{}:{}", my_local_ip, parsed_port);
+                println!("server info: {:?}", server_info);
                 
                 SERVER_INFO.set(server_info);
                 
@@ -118,9 +119,10 @@ impl CnctdServer {
                     100, 
                     true,
                     None,
-                );
+                ).await;
                 
-                println!("server running:\n{:?}", server_info);
+                println!("server running at http://{}:{}", my_local_ip, parsed_port);
+                println!("server info: {:?}", server_info);
 
                 SERVER_INFO.set(server_info);
                 

@@ -18,6 +18,7 @@ futures-util = "0.3.30"
 hmac = "0.12.1"
 jwt = "0.16.0"
 local-ip-address = "0.6.1"
+public-ip = "0.2.2"
 r2d2 = "0.8.10"
 r2d2_redis = "0.14.0"
 serde = { version = "1.0.188", features = ["derive"] }

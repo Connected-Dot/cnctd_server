@@ -8,6 +8,23 @@ pub struct Message {
     pub data: Option<Value>
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UserMessage {
+    pub channel: String,
+    pub instruction: String,
+    pub data: Option<Value>,
+    pub user_id: String,
+}
+
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SocketMessage {
+    pub channel: String,
+    pub instruction: String,
+    pub data: Option<Value>,
+    pub response_channel: String,
+}
+
 impl Message {
     pub fn new(channel: &str, instruction: &str, data: Option<Value>) -> Self {
         Self {
