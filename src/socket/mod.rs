@@ -168,14 +168,15 @@ impl CnctdSocket {
         
         for (user_id, client) in clients.iter() {
             if client.subscriptions.contains(&msg.channel) {
-                Self::message_user(&user_id, &msg).await?;
+                Self::message_user(&user_id, msg).await?;
             }
         }
     
         Ok(())
     }
 
-    pub async fn message_user(client_id: &str, msg: &Message) -> anyhow::Result<()> {
+    pub async fn message_user<M>(client_id: &str, msg: &M) -> anyhow::Result<()>
+    where M: Serialize + Debug + DeserializeOwned + Clone {
         let client = Self::get_client(client_id).await?;
         
         // Serialize the message only if a sender exists
@@ -322,6 +323,19 @@ impl CnctdSocket {
         let client = clients.get(client_id).ok_or_else(|| anyhow!("No matching client"))?;
 
         Ok(client.to_owned())
+    }
+
+    pub async fn get_client_id(user_id: &str) -> Option<String> {
+        let clients = CLIENTS.get().read().await;
+        let client_id = clients.iter().find_map(|(client_id, client)| {
+            if client.user_id == user_id {
+                Some(client_id.clone())
+            } else {
+                None
+            }
+        });
+
+        client_id
     }
 
     pub async fn push_client_to_redis(client_id: &str, client: &Client) -> anyhow::Result<()> {
