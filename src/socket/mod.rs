@@ -90,11 +90,16 @@ impl CnctdSocket {
 
         match config.redis_url {
             Some(url) => {
-                println!("REDIS URL: {:?}", url);
-                match cnctd_redis::CnctdRedis::start_pool(&url) {
-                    Ok(_) => redis = true,
+                match cnctd_redis::CnctdRedis::start(&url) {
+                    Ok(_) => {
+                        println!("Redis started!");
+                        tokio::spawn(async {
+                            ServerInfo::set_redis_active(true).await;
+                        });
+                        redis = true
+                    },
                     Err(e) => {
-                        eprintln!("Error starting Redis pool: {:?}", e);
+                        println!("Error starting Redis pool: {:?}", e);
                         redis = false
                     }
                 }

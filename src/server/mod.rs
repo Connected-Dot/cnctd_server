@@ -67,13 +67,6 @@ impl CnctdServer {
 
         match socket_config {
             Some(config) => {
-                let rest_routes = Self::build_routes::<M, Resp, R>(&server_router);
-                let routes = rest_routes
-                    .or(CnctdSocket::build_route(config.clone()))
-                    .or(web_app)
-                    .with(cors())
-                    .boxed();
-                
                 let server_info = ServerInfo::new(
                     &server_config.id, 
                     &my_local_ip.to_string(), 
@@ -83,10 +76,21 @@ impl CnctdServer {
                     config.redis_url.clone(),
                 ).await;
 
+                SERVER_INFO.set(server_info.clone());                
+
+                let rest_routes = Self::build_routes::<M, Resp, R>(&server_router);
+                let routes = rest_routes
+                    .or(CnctdSocket::build_route(config.clone()))
+                    .or(web_app)
+                    .with(cors())
+                    .boxed();
+                
+
+
                 println!("server and socket running at http://{}:{}", my_local_ip, parsed_port);
                 println!("server info: {:?}", server_info);
                 
-                SERVER_INFO.set(server_info);
+                
                 
                 if server_config.heartbeat.is_some() {
                     let heartbeat = server_config.heartbeat.unwrap();

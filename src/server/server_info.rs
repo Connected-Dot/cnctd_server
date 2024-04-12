@@ -27,6 +27,7 @@ pub struct ServerInfo {
     pub current_connections: usize,
     pub websocket: bool,
     pub redis_url: Option<String>,
+    pub redis_active: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
@@ -57,14 +58,9 @@ impl ServerInfo {
             max_connections,
             current_connections: 0,
             websocket,
-            redis_url
+            redis_url,
+            redis_active: false,
         };
-        if server_info.redis_url.is_some() {
-            match CnctdRedis::hset("server_info", &server_info.id, server_info.clone()) {
-                Ok(_) => (),
-                Err(e) => eprintln!("Error setting server info in Redis: {}", e),
-            }   
-        }
         Arc::new(RwLock::new(server_info))
     }
 
@@ -88,7 +84,7 @@ impl ServerInfo {
             CnctdSocket::broadcast_message(&msg).await?;
         }
         
-        if server_info.redis_url.is_some() {
+        if server_info.redis_url.is_some() && server_info.redis_active {
             CnctdRedis::hset("server_info", &server_info.id, server_info.clone())?;
         }
 
@@ -102,4 +98,12 @@ impl ServerInfo {
     pub async fn get_server_id() -> String {
         SERVER_INFO.get().read().await.id.clone()
     }
+
+    pub async fn set_redis_active(active: bool) {
+        let server_info = SERVER_INFO.get().clone();
+        let mut server_info = server_info.write().await;
+        
+        server_info.redis_active = active;
+    }
+    
 }
