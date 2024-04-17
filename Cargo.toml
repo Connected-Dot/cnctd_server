@@ -1,6 +1,6 @@
 [package]
 name = "cnctd_server"
-version = "0.1.27"
+version = "0.1.28"
 edition = "2021"
 authors = ["Connected Dot Inc.", "Kyle Ebner <kyle@cnctd.world>"]
 description = "Collection of server APIs"
@@ -13,7 +13,7 @@ keywords = ["module"]
 [dependencies]
 anyhow = "1.0.82"
 chrono = { version = "0.4.37", features = ["serde"]}
-cnctd_redis = { version = "0.1.6" }
+cnctd_redis = { version = "0.1.7" }
 # cnctd_redis = { version = "0.1.4", path = "../cnctd_redis" }
 futures-util = "0.3.30"
 hmac = "0.12.1"
