@@ -13,7 +13,8 @@ keywords = ["module"]
 [dependencies]
 anyhow = "1.0.82"
 chrono = { version = "0.4.37", features = ["serde"]}
-cnctd_redis = { version = "0.1.4", path = "../cnctd_redis" }
+cnctd_redis = { version = "0.1.6" }
+# cnctd_redis = { version = "0.1.4", path = "../cnctd_redis" }
 futures-util = "0.3.30"
 hmac = "0.12.1"
 jwt = "0.16.0"
