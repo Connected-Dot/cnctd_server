@@ -86,7 +86,7 @@ impl CnctdSocket {
     {
         CLIENTS.set(Arc::new(RwLock::new(HashMap::new())));
 
-        let mut redis = false;
+        let redis;
 
         match config.redis_url {
             Some(url) => {

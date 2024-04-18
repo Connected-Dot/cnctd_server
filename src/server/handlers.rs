@@ -5,7 +5,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
 use warp::reject::Rejection;
 
-use crate::{router::{response::Response, RestRouterFunction}, server::CnctdServer, socket::{Client, CnctdSocket, CLIENTS}};
+use crate::{auth::CnctdAuth, router::{response::Response, RestRouterFunction}, socket::{Client, CnctdSocket, CLIENTS}};
 
 pub type Result<T> = std::result::Result<T, Rejection>;
 
@@ -88,7 +88,7 @@ impl Handler {
             };
 
             // Perform the verification
-            match CnctdServer::verify_auth_token(secret.clone(), auth_token, user_id) {
+            match CnctdAuth::verify_auth_token(secret.clone(), auth_token, user_id) {
                 Ok(_) => (),
                 Err(_) => {
                     let response = Response::failure(Some("Failed to authorize user".into()), None);

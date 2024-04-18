@@ -1,15 +1,10 @@
 pub mod server_info;
 pub mod handlers;
 
-use std::{collections::BTreeMap, fmt::Debug, sync::Arc, time::Duration};
+use std::{fmt::Debug, sync::Arc, time::Duration};
 
-use anyhow::anyhow;
-use hmac::{Hmac, Mac};
-use jwt::VerifyWithKey;
 use local_ip_address::local_ip;
 use serde::{de::DeserializeOwned, Serialize};
-use serde_json::Value;
-use sha2::Sha256;
 use warp::Filter;
 
 use crate::{
@@ -186,27 +181,6 @@ impl CnctdServer {
                 }
 
             } => Ok(())
-        }
-    }
-
-    pub fn verify_auth_token<T: AsRef<str> + std::fmt::Debug>(secret: Vec<u8>, auth_token: &str, user_id: T) -> anyhow::Result<()> {
-        let key: Hmac<Sha256> = Hmac::new_from_slice(&secret)?;
-        let claims: BTreeMap<String, Value> = auth_token.verify_with_key(&key)?;
-        
-        let sub_claim = claims.get("sub").ok_or(anyhow!("'sub' claim not found"))?;
-        let user_id_ref = user_id.as_ref();
-    
-        // Dynamically check the type of `sub` and compare
-        let matched = match sub_claim {
-            Value::String(s) => s == user_id_ref,
-            Value::Number(n) => n.to_string() == user_id_ref,
-            _ => return Err(anyhow!("Unexpected type for 'sub' claim")),
-        };
-    
-        if matched {
-            Ok(())
-        } else {
-            Err(anyhow!("User ID does not match the 'sub' claim"))
         }
     }
 
