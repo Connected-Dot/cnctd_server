@@ -169,7 +169,7 @@ impl CnctdSocket {
     }
 
     pub async fn broadcast_message(msg: &Message) -> anyhow::Result<()> {
-        let clients = CLIENTS.get().read().await;
+        let clients = CLIENTS.try_get().ok_or_else(|| anyhow!("Clients not initialized"))?.read().await;
         
         for (user_id, client) in clients.iter() {
             if client.subscriptions.contains(&msg.channel) {
@@ -200,16 +200,18 @@ impl CnctdSocket {
     }
     
 
-    pub async fn get_clients() -> Vec<ClientInfo> {
-        let clients = CLIENTS.get().read().await;
+    pub async fn get_clients() -> anyhow::Result<Vec<ClientInfo>> {
+        let clients = CLIENTS.try_get().ok_or_else(|| anyhow!("Clients not initialized"))?.read().await;
         let server_id = ServerInfo::get_server_id().await;
-        clients.iter().map(|(client_id, client)| ClientInfo {
+        let clients = clients.iter().map(|(client_id, client)| ClientInfo {
             client_id: client_id.into(), 
             user_id: client.user_id.to_string(),
             subscriptions: client.subscriptions.clone(),
             connected: client.sender.is_some(),
             server_id: server_id.clone(),
-        }).collect()
+        }).collect();
+
+        Ok(clients)
     }
 
     pub async fn get_client_info(client_id: &str, client: Client) -> ClientInfo {
@@ -296,7 +298,10 @@ impl CnctdSocket {
         };
     
         // Clean up after disconnection
-        Self::remove_client(&client_id).await;
+        match Self::remove_client(&client_id).await {
+            Ok(_) => {},
+            Err(e) => eprintln!("Error removing client: {:?}", e),
+        };
 
         if redis {
             match Self::remove_client_from_redis(&client_id).await {    
@@ -307,8 +312,8 @@ impl CnctdSocket {
         
     }
 
-    pub async fn remove_client(client_id: &str) {
-        let clients = CLIENTS.get();
+    pub async fn remove_client(client_id: &str) -> anyhow::Result<()> {
+        let clients = CLIENTS.try_get().ok_or_else(|| anyhow!("Clients not initialized"))?;
         let mut clients_lock = clients.write().await;
     
         if let Some(client) = clients_lock.get(client_id) {
@@ -321,17 +326,22 @@ impl CnctdSocket {
                 println!("Client {} is active; no removal necessary.", client_id);
             }
         }
+
+        Ok(())
     }
 
     pub async fn get_client(client_id: &str) -> anyhow::Result<Client> {
-        let clients = CLIENTS.get().read().await;
+        let clients = CLIENTS.try_get().ok_or_else(|| anyhow!("Clients not initialized"))?.read().await;
         let client = clients.get(client_id).ok_or_else(|| anyhow!("No matching client"))?;
 
         Ok(client.to_owned())
     }
 
     pub async fn get_client_id(user_id: &str) -> Option<String> {
-        let clients = CLIENTS.get().read().await;
+        let clients = match CLIENTS.try_get() {
+            Some(clients) => clients.read().await,
+            None => return None,
+        };
         let client_id = clients.iter().find_map(|(client_id, client)| {
             if client.user_id == user_id {
                 Some(client_id.clone())
@@ -357,7 +367,7 @@ impl CnctdSocket {
     }
 
     pub async fn add_subscription(client_id: &str, channel: &str) -> anyhow::Result<()> {
-        let clients = CLIENTS.get();
+        let clients = CLIENTS.try_get().ok_or_else(|| anyhow!("Clients not initialized"))?;
         let mut clients_lock = clients.write().await;
     
         if let Some(client) = clients_lock.get_mut(client_id) {
@@ -370,7 +380,7 @@ impl CnctdSocket {
     }
 
     pub async fn remove_subscription(client_id: &str, channel: &str) -> anyhow::Result<()> {
-        let clients = CLIENTS.get();
+        let clients = CLIENTS.try_get().ok_or_else(|| anyhow!("Clients not initialized"))?;
         let mut clients_lock = clients.write().await;
     
         if let Some(client) = clients_lock.get_mut(client_id) {

@@ -117,9 +117,10 @@ impl Handler {
                         CnctdSocket::remove_client(&client_id_clone).await 
                     } else {
                         println!("Client connected. No need to remove");
+                        Ok(())
                     }
                 }
-                Err(_e) => {}
+                Err(_e) => Ok(())
             }
         });
 
