@@ -1,6 +1,7 @@
 use std::time::Duration;
 use std::sync::Arc;
 use std::fmt::Debug;
+use anyhow::anyhow;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
 use warp::reject::Rejection;
@@ -99,7 +100,13 @@ impl Handler {
 
         let client_id = uuid::Uuid::new_v4().to_string();
         let client = Client::new(client_query.user_id.unwrap_or(client_id.clone()), subs);
-        let clients_lock = CLIENTS.get(); // Get a reference to the CLIENTS storage
+        let clients_lock = match CLIENTS.try_get() {
+            Some(clients) => clients,
+            None => {
+                let response = Response::failure(Some("Failed to get clients lock".into()), None);
+                return Ok(warp::reply::json(&response))
+            }
+        };
         let mut clients = clients_lock.write().await; // Lock the CLIENTS for write access
         
         clients.insert(client_id.clone(), client);

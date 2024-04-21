@@ -217,6 +217,11 @@ impl CnctdServer {
                         })
                         
                 )
+                // .or(
+                //     warp::get()
+                //         .and(warp::path("file"))
+                //         .and(warp::query::<M>)
+                // )
             );
 
         routes.boxed()
