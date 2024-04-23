@@ -1,10 +1,10 @@
 use std::time::Duration;
 use std::sync::Arc;
 use std::fmt::Debug;
-use anyhow::anyhow;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
-use warp::reject::Rejection;
+use warp::{reject::Rejection, reply::Reply};
+use warp::hyper::Uri;
 
 use crate::{auth::CnctdAuth, router::{response::Response, RestRouterFunction}, socket::{Client, CnctdSocket, CLIENTS}};
 
@@ -21,6 +21,13 @@ where
 pub struct ClientQuery {
     user_id: Option<String>,
     subscriptions: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct FileQuery {
+    pub path: String,
+    pub client_id: String,
+    pub size: Option<String>,
 }
 
 pub struct Handler;
@@ -46,6 +53,24 @@ impl Handler {
         let response = router.route(msg, auth_token).await;
     
         Ok(warp::reply::json(&response))
+    }
+
+    pub async fn get_file<M, Resp, R>(msg: FileQuery, router: Arc<R>) -> Result<impl warp::Reply>
+    where
+        M: Serialize + DeserializeOwned + Send + Sync + Debug + Clone,
+        Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone, 
+        R: RestRouterFunction<M, Resp>,
+    {
+        // println!("File router. path: {}", path);
+        println!("File HANDLER, msg: {:?}", msg);
+        let url = router.route_get_file(msg).await;
+        println!("File HANDLER, url: {}", url);
+        match url.parse::<Uri>() {
+            Ok(uri) => Ok(warp::redirect::found(uri).into_response()),
+            Err(_) => Err(warp::reject::not_found())
+        }
+
+        // Ok(warp::redirect::found(url.parse::<Uri>().unwrap()).into_response())
     }
 
     pub async fn get_redirect<M, H>(msg: M, handler: Arc<H>) -> Result<impl warp::Reply>

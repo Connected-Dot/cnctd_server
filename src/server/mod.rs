@@ -11,7 +11,7 @@ use crate::{
     router::{RestRouterFunction, SocketRouterFunction}, server::server_info::{ServerInfo, SERVER_INFO}, socket::{CnctdSocket, SocketConfig}, utils::{cors, spa}
 };
 
-use self::handlers::{Handler, RedirectHandler};
+use self::handlers::{FileQuery, Handler, RedirectHandler};
 
 
 
@@ -193,36 +193,41 @@ impl CnctdServer {
 
         let cloned_router_for_post = Arc::clone(&router);
         let cloned_router_for_get = Arc::clone(&router);
+        let cloned_router_for_file = Arc::clone(&router);
 
-        let routes = warp::path::end()
-            .and(
-                warp::post()
-                    .and(warp::header::optional("Authorization"))
-                    .and(warp::body::json())
-                    .and_then(move |auth_header: Option<String>, msg: M| {
-                        let router_clone = cloned_router_for_post.clone();
-                        async move {
-                            Handler::post(msg, auth_header, router_clone).await
-                        }
-                    })
-                .or(
-                    warp::get()
-                        .and(warp::header::optional("Authorization"))
-                        .and(warp::query::<M>())
-                        .and_then(move |auth_header: Option<String>, msg: M| {
-                            let router_clone = cloned_router_for_get.clone();
-                            async move {
-                                Handler::get(msg, auth_header, router_clone).await
-                            }
-                        })
-                        
-                )
-                // .or(
-                //     warp::get()
-                //         .and(warp::path("file"))
-                //         .and(warp::query::<M>)
-                // )
-            );
+        let post_route = warp::post()
+            .and(warp::header::optional("Authorization"))
+            .and(warp::body::json())
+            .and_then(move |auth_header: Option<String>, msg: M| {
+                let router_clone = cloned_router_for_post.clone();
+                async move {
+                    Handler::post(msg, auth_header, router_clone).await
+                }
+            });
+
+        let get_route =                     warp::get()
+            .and(warp::header::optional("Authorization"))
+            .and(warp::query::<M>())
+            .and_then(move |auth_header: Option<String>, msg: M| {
+                let router_clone = cloned_router_for_get.clone();
+                async move {
+                    Handler::get(msg, auth_header, router_clone).await
+                }
+            });
+
+        let file_route = warp::path("file")
+            .and(warp::get())
+            .and(warp::query::<FileQuery>())
+            .and_then(move |msg: FileQuery| {
+                let router_clone = cloned_router_for_file.clone();
+                async move {
+                    Handler::get_file(msg, router_clone).await
+                }
+            });
+
+        let routes = file_route
+            .or(post_route)
+            .or(get_route);
 
         routes.boxed()
     }
