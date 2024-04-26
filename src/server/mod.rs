@@ -5,13 +5,13 @@ use std::{fmt::Debug, sync::Arc, time::Duration};
 
 use local_ip_address::local_ip;
 use serde::{de::DeserializeOwned, Serialize};
-use warp::Filter;
+use warp::{filters::path::FullPath, Filter};
 
 use crate::{
     router::{RestRouterFunction, SocketRouterFunction}, server::server_info::{ServerInfo, SERVER_INFO}, socket::{CnctdSocket, SocketConfig}, utils::{cors, spa}
 };
 
-use self::handlers::{FileQuery, Handler, RedirectHandler};
+use self::handlers::{RedirectQuery, Handler, RedirectHandler};
 
 
 
@@ -158,7 +158,7 @@ impl CnctdServer {
             .and(warp::query::<M>())
             .and(with_handler(handler.clone()))
             .and_then(|msg, handler| {
-                Handler::get_redirect(msg, handler)
+                Handler::api_redirect(msg, handler)
             });
     
         let routes = rest_route.with(cors).boxed();
@@ -190,46 +190,85 @@ impl CnctdServer {
         Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static, 
         R: RestRouterFunction<M, Resp> + 'static,
     {
-
         let cloned_router_for_post = Arc::clone(&router);
         let cloned_router_for_get = Arc::clone(&router);
-        let cloned_router_for_file = Arc::clone(&router);
+        let cloned_router_for_put = Arc::clone(&router);
+        let cloned_router_for_delete = Arc::clone(&router);
+        let cloned_router_for_redirect = Arc::clone(&router);
 
-        let post_route = warp::post()
+        let post_route = warp::path("api")
+            .and(warp::post())
+            .and(warp::path::full())
             .and(warp::header::optional("Authorization"))
             .and(warp::body::json())
-            .and_then(move |auth_header: Option<String>, msg: M| {
+            .and_then(move |path: FullPath, auth_header: Option<String>, msg: M| {
                 let router_clone = cloned_router_for_post.clone();
                 async move {
-                    Handler::post(msg, auth_header, router_clone).await
+                    Handler::post(path.as_str().to_string(), msg, auth_header, router_clone).await
                 }
             });
 
-        let get_route =                     warp::get()
+        let get_route = warp::path("api")
+            .and(warp::get())
+            .and(warp::path::full())
             .and(warp::header::optional("Authorization"))
             .and(warp::query::<M>())
-            .and_then(move |auth_header: Option<String>, msg: M| {
+            .and_then(move |path: FullPath, auth_header: Option<String>, msg: M| {
                 let router_clone = cloned_router_for_get.clone();
                 async move {
-                    Handler::get(msg, auth_header, router_clone).await
+                    Handler::get(path.as_str().to_string(), msg, auth_header, router_clone).await
                 }
             });
 
-        let file_route = warp::path("file")
-            .and(warp::get())
-            .and(warp::query::<FileQuery>())
-            .and_then(move |msg: FileQuery| {
-                let router_clone = cloned_router_for_file.clone();
+        let put_route = warp::path("api")
+            .and(warp::put())
+            .and(warp::path::full())
+            .and(warp::header::optional("Authorization"))
+            .and(warp::body::json())
+            .and_then(move |path: FullPath, auth_header: Option<String>, msg: M| {
+                let router_clone = cloned_router_for_put.clone();
                 async move {
-                    Handler::get_file(msg, router_clone).await
+                    Handler::put(path.as_str().to_string(), msg, auth_header, router_clone).await
                 }
             });
 
-        let routes = file_route
+        let delete_route = warp::path("api")
+            .and(warp::delete())
+            .and(warp::path::full())
+            .and(warp::header::optional("Authorization"))
+            .and(warp::body::json())
+            .and_then(move |path: FullPath, auth_header: Option<String>, msg: M| {
+                let router_clone = cloned_router_for_delete.clone();
+                async move {
+                    Handler::delete(path.as_str().to_string(), msg, auth_header, router_clone).await
+                }
+            });
+
+        let redirect_route = warp::path("redirect")
+            .and(warp::get())
+            .and(warp::query::<RedirectQuery>())
+            .and_then(move |msg: RedirectQuery| {
+                let router_clone = cloned_router_for_redirect.clone();
+                async move {
+                    Handler::get_redirect(msg, router_clone).await
+                }
+            });
+
+        let routes = redirect_route
             .or(post_route)
-            .or(get_route);
+            .or(get_route)
+            .or(put_route)
+            .or(delete_route);
 
         routes.boxed()
+    }
+
+    pub fn path_to_channel_and_instruction(path: &str) -> (String, String) {
+        let path_parts = path.trim_start_matches("/api/").split('/').collect::<Vec<&str>>();
+        let channel = path_parts.get(0).map(|&s| s.to_string()).unwrap_or_default();
+        let instruction = path_parts.get(1).map(|&s| s.to_string()).unwrap_or_default();
+
+        (channel, instruction)
     }
 }
 

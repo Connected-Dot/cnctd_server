@@ -12,8 +12,7 @@ pub struct Message {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct UserMessage {
-    pub channel: String,
-    pub instruction: String,
+    pub data_type: Option<String>,
     pub data: Option<Value>,
     pub user_id: String,
 }

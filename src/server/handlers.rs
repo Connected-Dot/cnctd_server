@@ -6,6 +6,7 @@ use serde_json::json;
 use warp::{reject::Rejection, reply::Reply};
 use warp::hyper::Uri;
 
+use crate::router::HttpMethod;
 use crate::{auth::CnctdAuth, router::{response::Response, RestRouterFunction}, socket::{Client, CnctdSocket, CLIENTS}};
 
 pub type Result<T> = std::result::Result<T, Rejection>;
@@ -24,7 +25,7 @@ pub struct ClientQuery {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct FileQuery {
+pub struct RedirectQuery {
     pub path: String,
     pub client_id: String,
     pub size: Option<String>,
@@ -33,29 +34,53 @@ pub struct FileQuery {
 pub struct Handler;
 
 impl Handler {
-    pub async fn post<M, Resp, R>(msg: M, auth_token: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
+    pub async fn post<M, Resp, R>(path: String, msg: M, auth_token: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
     where
         M: Serialize + DeserializeOwned + Send + Sync + Debug + Clone, 
         Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone, 
         R: RestRouterFunction<M, Resp>,
     {
-        let response = router.route(msg, auth_token).await;
+        let response = router.route(HttpMethod::POST, path, msg, auth_token).await;
         Ok(warp::reply::json(&response))
     }
     
-    pub async fn get<M, Resp, R>(msg: M, auth_token: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
+    pub async fn get<M, Resp, R>(path: String, msg: M, auth_token: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
     where
         M: Serialize + DeserializeOwned + Send + Sync + Debug + Clone,
         Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone, 
         R: RestRouterFunction<M, Resp>,
         
     {
-        let response = router.route(msg, auth_token).await;
+        let response = router.route(HttpMethod::GET, path, msg, auth_token).await;
+    
+        Ok(warp::reply::json(&response))
+    }
+    
+    pub async fn put<M, Resp, R>(path: String, msg: M, auth_token: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
+    where
+        M: Serialize + DeserializeOwned + Send + Sync + Debug + Clone,
+        Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone, 
+        R: RestRouterFunction<M, Resp>,
+        
+    {
+        let response = router.route(HttpMethod::PUT, path, msg, auth_token).await;
     
         Ok(warp::reply::json(&response))
     }
 
-    pub async fn get_file<M, Resp, R>(msg: FileQuery, router: Arc<R>) -> Result<impl warp::Reply>
+    pub async fn delete<M, Resp, R>(path: String, msg: M, auth_token: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
+    where
+        M: Serialize + DeserializeOwned + Send + Sync + Debug + Clone,
+        Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone, 
+        R: RestRouterFunction<M, Resp>,
+        
+    {
+        let response = router.route(HttpMethod::DELETE, path, msg, auth_token).await;
+    
+        Ok(warp::reply::json(&response))
+    }
+
+    pub async fn get_redirect<M, Resp, R>(msg: RedirectQuery, router: Arc<R>) -> Result<impl warp::Reply>
     where
         M: Serialize + DeserializeOwned + Send + Sync + Debug + Clone,
         Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone, 
@@ -63,7 +88,7 @@ impl Handler {
     {
         // println!("File router. path: {}", path);
         println!("File HANDLER, msg: {:?}", msg);
-        let url = router.route_get_file(msg).await;
+        let url = router.route_redirect(msg).await;
         println!("File HANDLER, url: {}", url);
         match url.parse::<Uri>() {
             Ok(uri) => Ok(warp::redirect::found(uri).into_response()),
@@ -73,7 +98,7 @@ impl Handler {
         // Ok(warp::redirect::found(url.parse::<Uri>().unwrap()).into_response())
     }
 
-    pub async fn get_redirect<M, H>(msg: M, handler: Arc<H>) -> Result<impl warp::Reply>
+    pub async fn api_redirect<M, H>(msg: M, handler: Arc<H>) -> Result<impl warp::Reply>
     where
         M: Serialize + DeserializeOwned + Send + Sync,
         H: RedirectHandler<M>,
