@@ -11,11 +11,11 @@ use crate::{auth::CnctdAuth, router::{response::Response, RestRouterFunction}, s
 
 pub type Result<T> = std::result::Result<T, Rejection>;
 
-pub trait RedirectHandler<M>: Send + Sync
+pub trait RedirectHandler<Req>: Send + Sync
 where
-    M: Serialize + DeserializeOwned + Send + Sync,
+    Req: Serialize + DeserializeOwned + Send + Sync,
 {
-    fn handle(&self, msg: M) -> anyhow::Result<String>;
+    fn handle(&self, msg: Req) -> anyhow::Result<String>;
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -34,21 +34,21 @@ pub struct RedirectQuery {
 pub struct Handler;
 
 impl Handler {
-    pub async fn post<M, Resp, R>(path: String, msg: M, auth_token: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
+    pub async fn post<Req, Resp, R>(path: String, msg: Req, auth_token: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
     where
-        M: Serialize + DeserializeOwned + Send + Sync + Debug + Clone, 
+        Req: Serialize + DeserializeOwned + Send + Sync + Debug + Clone, 
         Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone, 
-        R: RestRouterFunction<M, Resp>,
+        R: RestRouterFunction<Req, Resp>,
     {
         let response = router.route(HttpMethod::POST, path, msg, auth_token).await;
         Ok(warp::reply::json(&response))
     }
     
-    pub async fn get<M, Resp, R>(path: String, msg: M, auth_token: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
+    pub async fn get<Req, Resp, R>(path: String, msg: Req, auth_token: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
     where
-        M: Serialize + DeserializeOwned + Send + Sync + Debug + Clone,
+        Req: Serialize + DeserializeOwned + Send + Sync + Debug + Clone,
         Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone, 
-        R: RestRouterFunction<M, Resp>,
+        R: RestRouterFunction<Req, Resp>,
         
     {
         let response = router.route(HttpMethod::GET, path, msg, auth_token).await;
@@ -56,11 +56,11 @@ impl Handler {
         Ok(warp::reply::json(&response))
     }
     
-    pub async fn put<M, Resp, R>(path: String, msg: M, auth_token: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
+    pub async fn put<Req, Resp, R>(path: String, msg: Req, auth_token: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
     where
-        M: Serialize + DeserializeOwned + Send + Sync + Debug + Clone,
+        Req: Serialize + DeserializeOwned + Send + Sync + Debug + Clone,
         Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone, 
-        R: RestRouterFunction<M, Resp>,
+        R: RestRouterFunction<Req, Resp>,
         
     {
         let response = router.route(HttpMethod::PUT, path, msg, auth_token).await;
@@ -68,11 +68,11 @@ impl Handler {
         Ok(warp::reply::json(&response))
     }
 
-    pub async fn delete<M, Resp, R>(path: String, msg: M, auth_token: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
+    pub async fn delete<Req, Resp, R>(path: String, msg: Req, auth_token: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
     where
-        M: Serialize + DeserializeOwned + Send + Sync + Debug + Clone,
+        Req: Serialize + DeserializeOwned + Send + Sync + Debug + Clone,
         Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone, 
-        R: RestRouterFunction<M, Resp>,
+        R: RestRouterFunction<Req, Resp>,
         
     {
         let response = router.route(HttpMethod::DELETE, path, msg, auth_token).await;
@@ -80,11 +80,11 @@ impl Handler {
         Ok(warp::reply::json(&response))
     }
 
-    pub async fn get_redirect<M, Resp, R>(msg: RedirectQuery, router: Arc<R>) -> Result<impl warp::Reply>
+    pub async fn get_redirect<Req, Resp, R>(msg: RedirectQuery, router: Arc<R>) -> Result<impl warp::Reply>
     where
-        M: Serialize + DeserializeOwned + Send + Sync + Debug + Clone,
+        Req: Serialize + DeserializeOwned + Send + Sync + Debug + Clone,
         Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone, 
-        R: RestRouterFunction<M, Resp>,
+        R: RestRouterFunction<Req, Resp>,
     {
         // println!("File router. path: {}", path);
         println!("File HANDLER, msg: {:?}", msg);
@@ -98,10 +98,10 @@ impl Handler {
         // Ok(warp::redirect::found(url.parse::<Uri>().unwrap()).into_response())
     }
 
-    pub async fn api_redirect<M, H>(msg: M, handler: Arc<H>) -> Result<impl warp::Reply>
+    pub async fn api_redirect<Req, H>(msg: Req, handler: Arc<H>) -> Result<impl warp::Reply>
     where
-        M: Serialize + DeserializeOwned + Send + Sync,
-        H: RedirectHandler<M>,
+        Req: Serialize + DeserializeOwned + Send + Sync,
+        H: RedirectHandler<Req>,
     {
         match handler.handle(msg) {
             Ok(html_response) => Ok(warp::reply::html(html_response)),

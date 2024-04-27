@@ -40,15 +40,15 @@ impl<R> ServerConfig<R> {
 pub struct CnctdServer;
 
 impl CnctdServer {
-    pub async fn start<M, Resp, R, SM, SResp, SR>(server_config: ServerConfig<R>, socket_config: Option<SocketConfig<SR>>) 
+    pub async fn start<Req, Resp, R, SReq, SResp, SR>(server_config: ServerConfig<R>, socket_config: Option<SocketConfig<SR>>) 
     -> anyhow::Result<()>
     where
-        M: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static,
+        Req: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static,
         Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static, 
-        R: RestRouterFunction<M, Resp> + 'static,
-        SM: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static,
+        R: RestRouterFunction<Req, Resp> + 'static,
+        SReq: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static,
         SResp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static, 
-        SR: SocketRouterFunction<SM, SResp> + 'static,
+        SR: SocketRouterFunction<SReq, SResp> + 'static,
     {
         let server_router = Arc::new(server_config.router);
 
@@ -73,7 +73,7 @@ impl CnctdServer {
 
                 SERVER_INFO.set(server_info.clone());                
 
-                let rest_routes = Self::build_routes::<M, Resp, R>(&server_router);
+                let rest_routes = Self::build_routes::<Req, Resp, R>(&server_router);
                 let routes = rest_routes
                     .or(CnctdSocket::build_route(config.clone()))
                     .or(web_app)
@@ -105,7 +105,7 @@ impl CnctdServer {
                 warp::serve(routes).run(socket).await;
             }
             None => {
-                let rest_routes = Self::build_routes::<M, Resp, R>(&server_router);
+                let rest_routes = Self::build_routes::<Req, Resp, R>(&server_router);
                 let routes = rest_routes
                     .or(web_app)
                     .with(cors())
@@ -144,10 +144,10 @@ impl CnctdServer {
         Ok(())
     }
 
-    pub async fn start_redirect<M, H>(port: &str, handler: H, mut shutdown_rx: tokio::sync::mpsc::Receiver<()>) -> anyhow::Result<()> 
+    pub async fn start_redirect<Req, H>(port: &str, handler: H, mut shutdown_rx: tokio::sync::mpsc::Receiver<()>) -> anyhow::Result<()> 
     where
-        M: Serialize + DeserializeOwned + Send + Sync + 'static,
-        H: RedirectHandler<M> + 'static,
+        Req: Serialize + DeserializeOwned + Send + Sync + 'static,
+        H: RedirectHandler<Req> + 'static,
     {
         let handler = Arc::new(handler);
         let cors = cors();
@@ -155,7 +155,7 @@ impl CnctdServer {
     
         let rest_route = warp::path::end()
             .and(warp::get())
-            .and(warp::query::<M>())
+            .and(warp::query::<Req>())
             .and(with_handler(handler.clone()))
             .and_then(|msg, handler| {
                 Handler::api_redirect(msg, handler)
@@ -184,11 +184,11 @@ impl CnctdServer {
         }
     }
 
-    fn build_routes<M, Resp, R>(router: &Arc<R>) -> warp::filters::BoxedFilter<(impl warp::Reply,)>
+    fn build_routes<Req, Resp, R>(router: &Arc<R>) -> warp::filters::BoxedFilter<(impl warp::Reply,)>
     where
-        M: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static,
+        Req: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static,
         Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static, 
-        R: RestRouterFunction<M, Resp> + 'static,
+        R: RestRouterFunction<Req, Resp> + 'static,
     {
         let cloned_router_for_post = Arc::clone(&router);
         let cloned_router_for_get = Arc::clone(&router);
@@ -201,7 +201,7 @@ impl CnctdServer {
             .and(warp::path::full())
             .and(warp::header::optional("Authorization"))
             .and(warp::body::json())
-            .and_then(move |path: FullPath, auth_header: Option<String>, msg: M| {
+            .and_then(move |path: FullPath, auth_header: Option<String>, msg: Req| {
                 let router_clone = cloned_router_for_post.clone();
                 async move {
                     Handler::post(path.as_str().to_string(), msg, auth_header, router_clone).await
@@ -212,8 +212,8 @@ impl CnctdServer {
             .and(warp::get())
             .and(warp::path::full())
             .and(warp::header::optional("Authorization"))
-            .and(warp::query::<M>())
-            .and_then(move |path: FullPath, auth_header: Option<String>, msg: M| {
+            .and(warp::query::<Req>())
+            .and_then(move |path: FullPath, auth_header: Option<String>, msg: Req| {
                 let router_clone = cloned_router_for_get.clone();
                 async move {
                     Handler::get(path.as_str().to_string(), msg, auth_header, router_clone).await
@@ -225,7 +225,7 @@ impl CnctdServer {
             .and(warp::path::full())
             .and(warp::header::optional("Authorization"))
             .and(warp::body::json())
-            .and_then(move |path: FullPath, auth_header: Option<String>, msg: M| {
+            .and_then(move |path: FullPath, auth_header: Option<String>, msg: Req| {
                 let router_clone = cloned_router_for_put.clone();
                 async move {
                     Handler::put(path.as_str().to_string(), msg, auth_header, router_clone).await
@@ -237,7 +237,7 @@ impl CnctdServer {
             .and(warp::path::full())
             .and(warp::header::optional("Authorization"))
             .and(warp::body::json())
-            .and_then(move |path: FullPath, auth_header: Option<String>, msg: M| {
+            .and_then(move |path: FullPath, auth_header: Option<String>, msg: Req| {
                 let router_clone = cloned_router_for_delete.clone();
                 async move {
                     Handler::delete(path.as_str().to_string(), msg, auth_header, router_clone).await
@@ -263,19 +263,19 @@ impl CnctdServer {
         routes.boxed()
     }
 
-    pub fn path_to_channel_and_instruction(path: &str) -> (String, String) {
+    pub fn path_to_resource_and_action(path: &str) -> (String, String) {
         let path_parts = path.trim_start_matches("/api/").split('/').collect::<Vec<&str>>();
-        let channel = path_parts.get(0).map(|&s| s.to_string()).unwrap_or_default();
-        let instruction = path_parts.get(1).map(|&s| s.to_string()).unwrap_or_default();
+        let resource = path_parts.get(0).map(|&s| s.to_string()).unwrap_or_default();
+        let action = path_parts.get(1).map(|&s| s.to_string()).unwrap_or_default();
 
-        (channel, instruction)
+        (resource, action)
     }
 }
 
-fn with_handler<M, H>(handler: Arc<H>) -> impl Filter<Extract = (Arc<H>,), Error = std::convert::Infallible> + Clone
+fn with_handler<Req, H>(handler: Arc<H>) -> impl Filter<Extract = (Arc<H>,), Error = std::convert::Infallible> + Clone
 where
-    M: Serialize + DeserializeOwned + Send + Sync,
-    H: RedirectHandler<M>,
+    Req: Serialize + DeserializeOwned + Send + Sync,
+    H: RedirectHandler<Req>,
 {
     warp::any().map(move || handler.clone())
 }

@@ -1,5 +1,6 @@
 pub mod response;
 pub mod message;
+pub mod request;
 
 use std::{future::Future, pin::Pin};
 use std::fmt::Debug;
@@ -15,13 +16,13 @@ pub enum HttpMethod {
     DELETE,
 }
 
-pub trait RestRouterFunction<M, Resp>: Send + Sync + Clone
+pub trait RestRouterFunction<Req, Resp>: Send + Sync + Clone
 where
     Self: Send + Sync + Clone,
-    M: Serialize + for<'de> Deserialize<'de> + Clone + Debug,
+    Req: Serialize + for<'de> Deserialize<'de> + Clone + Debug,
     Resp: Serialize + for<'de> Deserialize<'de> + Clone + Debug,
 {
-    fn route(&self, method: HttpMethod, path: String, msg: M, auth_token: Option<String>) -> Pin<Box<dyn Future<Output = Resp> + Send>>;
+    fn route(&self, method: HttpMethod, path: String, msg: Req, auth_token: Option<String>) -> Pin<Box<dyn Future<Output = Resp> + Send>>;
     // fn route_get(&self, path: String, msg: M, auth_token: Option<String>) -> Pin<Box<dyn Future<Output = Resp> + Send>>;
     // fn route_post(&self, path: String, msg: M, auth_token: Option<String>) -> Pin<Box<dyn Future<Output = Resp> + Send>>;
     // fn route_put(&self, path: String, msg: M, auth_token: Option<String>) -> Pin<Box<dyn Future<Output = Resp> + Send>>;
@@ -29,12 +30,12 @@ where
     fn route_redirect(&self, msg: RedirectQuery) -> Pin<Box<dyn Future<Output = String> + Send>>;
 }
 
-pub trait SocketRouterFunction<M, Resp>: Send + Sync + Clone
+pub trait SocketRouterFunction<Req, Resp>: Send + Sync + Clone
 where
     Self: Send + Sync + Clone,
-    M: Serialize + for<'de> Deserialize<'de> + Clone + Debug,
+    Req: Serialize + for<'de> Deserialize<'de> + Clone + Debug,
     Resp: Serialize + for<'de> Deserialize<'de> + Clone + Debug,
 {
-    fn route(&self, msg: M) -> Pin<Box<dyn Future<Output = Resp> + Send>>;
+    fn route(&self, msg: Req) -> Pin<Box<dyn Future<Output = Resp> + Send>>;
 }
 
