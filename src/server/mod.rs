@@ -263,11 +263,11 @@ impl CnctdServer {
         routes.boxed()
     }
 
-    pub fn path_to_resource_and_action(path: &str) -> (String, String) {
-        let path_parts = path.trim_start_matches("/api/").split('/').collect::<Vec<&str>>();
-        let resource = path_parts.get(0).map(|&s| s.to_string()).unwrap_or_default();
-        let action = path_parts.get(1).map(|&s| s.to_string()).unwrap_or_default();
-
+    pub fn path_to_resource_and_action(path: &str) -> (String, Option<String>) {
+        let mut parts = path.trim_start_matches("/api/").split('/');
+        let resource = parts.next().unwrap_or_default().to_string();
+        let action = parts.next().map(|s| s.to_string());
+    
         (resource, action)
     }
 }

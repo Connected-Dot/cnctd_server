@@ -3,7 +3,7 @@ use serde_json::Value;
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct Request {
-    pub user_id: String,
+    pub user_id: Option<String>,
     pub key: Option<String>,
     pub data: Option<Value>,
 }
