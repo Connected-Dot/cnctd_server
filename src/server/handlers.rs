@@ -2,7 +2,7 @@ use std::time::Duration;
 use std::sync::Arc;
 use std::fmt::Debug;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use warp::{reject::Rejection, reply::Reply};
 use warp::hyper::Uri;
 
@@ -13,11 +13,11 @@ use crate::{auth::CnctdAuth, router::{RestRouterFunction}, socket::{Client, Cnct
 pub type Result<T> = std::result::Result<T, Rejection>;
 
 
-pub trait RedirectHandler<DataIn>: Send + Sync
+pub trait RedirectHandler<Value>: Send + Sync
 where
-    DataIn: Serialize + DeserializeOwned + Send + Sync,
+    Value: Serialize + DeserializeOwned + Send + Sync,
 {
-    fn handle(&self, msg: DataIn) -> anyhow::Result<String>;
+    fn handle(&self, data: Value) -> anyhow::Result<String>;
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -36,13 +36,11 @@ pub struct RedirectQuery {
 pub struct Handler;
 
 impl Handler {
-    pub async fn post<DataIn, DataOut, R>(path: String, msg: DataIn, auth_token: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
+    pub async fn post<R>(path: String, data: Option<Value>, auth_token: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
     where
-        DataIn: Serialize + DeserializeOwned + Send + Sync + Debug + Clone, 
-        DataOut: Serialize + DeserializeOwned + Send + Sync + Debug + Clone, 
-        R: RestRouterFunction<DataIn, DataOut>,
+        R: RestRouterFunction,
     {
-        match router.route(HttpMethod::POST, path, msg, auth_token).await {
+        match router.route(HttpMethod::POST, path, data, auth_token).await {
             Ok(response) => {
                 let status_code = &response.status_code.to_warp_status_code();
                 let json = warp::reply::json(&response);
@@ -58,14 +56,12 @@ impl Handler {
         }
     }
     
-    pub async fn get<DataIn, DataOut, R>(path: String, msg: DataIn, auth_token: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
+    pub async fn get<R>(path: String, data: Option<Value>, auth_token: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
     where
-        DataIn: Serialize + DeserializeOwned + Send + Sync + Debug + Clone,
-        DataOut: Serialize + DeserializeOwned + Send + Sync + Debug + Clone, 
-        R: RestRouterFunction<DataIn, DataOut>,
+        R: RestRouterFunction,
         
     {
-        match router.route(HttpMethod::GET, path, msg, auth_token).await {
+        match router.route(HttpMethod::GET, path, data, auth_token).await {
             Ok(response) => {
                 let status_code = &response.status_code.to_warp_status_code();
                 let json = warp::reply::json(&response);
@@ -81,14 +77,12 @@ impl Handler {
         }
     }
     
-    pub async fn put<DataIn, DataOut, R>(path: String, msg: DataIn, auth_token: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
+    pub async fn put<R>(path: String, data: Option<Value>, auth_token: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
     where
-        DataIn: Serialize + DeserializeOwned + Send + Sync + Debug + Clone,
-        DataOut: Serialize + DeserializeOwned + Send + Sync + Debug + Clone, 
-        R: RestRouterFunction<DataIn, DataOut>,
+        R: RestRouterFunction,
         
     {
-        match router.route(HttpMethod::PUT, path, msg, auth_token).await {
+        match router.route(HttpMethod::PUT, path, data, auth_token).await {
             Ok(response) => {
                 let status_code = &response.status_code.to_warp_status_code();
                 let json = warp::reply::json(&response);
@@ -104,14 +98,13 @@ impl Handler {
         }
     }
 
-    pub async fn delete<DataIn, DataOut, R>(path: String, msg: DataIn, auth_token: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
+    pub async fn delete<R>(path: String, data: Option<Value>, auth_token: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
     where
-        DataIn: Serialize + DeserializeOwned + Send + Sync + Debug + Clone,
-        DataOut: Serialize + DeserializeOwned + Send + Sync + Debug + Clone, 
-        R: RestRouterFunction<DataIn, DataOut>,
+
+        R: RestRouterFunction,
         
     {
-        match router.route(HttpMethod::DELETE, path, msg, auth_token).await {
+        match router.route(HttpMethod::DELETE, path, data, auth_token).await {
             Ok(response) => {
                 let status_code = &response.status_code.to_warp_status_code();
                 let json = warp::reply::json(&response);
@@ -127,15 +120,14 @@ impl Handler {
         }
     }
 
-    pub async fn get_redirect<DataIn, DataOut, R>(msg: RedirectQuery, router: Arc<R>) -> Result<impl warp::Reply>
+    pub async fn get_redirect<R>(data: RedirectQuery, router: Arc<R>) -> Result<impl warp::Reply>
     where
-        DataIn: Serialize + DeserializeOwned + Send + Sync + Debug + Clone,
-        DataOut: Serialize + DeserializeOwned + Send + Sync + Debug + Clone, 
-        R: RestRouterFunction<DataIn, DataOut>,
+
+        R: RestRouterFunction,
     {
         // println!("File router. path: {}", path);
-        println!("File HANDLER, msg: {:?}", msg);
-        let url = router.route_redirect(msg).await;
+        println!("File HANDLER, data: {:?}", data);
+        let url = router.route_redirect(data).await;
         println!("File HANDLER, url: {}", url);
         match url.parse::<Uri>() {
             Ok(uri) => Ok(warp::redirect::found(uri).into_response()),
@@ -145,12 +137,12 @@ impl Handler {
         // Ok(warp::redirect::found(url.parse::<Uri>().unwrap()).into_response())
     }
 
-    pub async fn api_redirect<DataIn, H>(msg: DataIn, handler: Arc<H>) -> Result<impl warp::Reply>
+    pub async fn api_redirect<Value, H>(data: Value, handler: Arc<H>) -> Result<impl warp::Reply>
     where
-        DataIn: Serialize + DeserializeOwned + Send + Sync,
-        H: RedirectHandler<DataIn>,
+        Value: Serialize + DeserializeOwned + Send + Sync,
+        H: RedirectHandler<Value>,
     {
-        match handler.handle(msg) {
+        match handler.handle(data) {
             Ok(html_response) => Ok(warp::reply::html(html_response)),
             Err(_) => Err(warp::reject::reject()),
         }
@@ -170,13 +162,13 @@ impl Handler {
         
         if let Some(secret) = &secret {
             // Ensure both user_id and auth_token are provided
-            let user_id = match &client_query.user_id {
-                Some(id) => id,
-                None => {
-                    let error = ErrorResponse::new(Some(ErrorCode::Unauthorized), Some("No user_id provided".into()));
-                    return Ok(warp::reply::json(&error))
-                }
-            };
+            // let user_id = match &client_query.user_id {
+            //     Some(id) => id,
+            //     None => {
+            //         let error = ErrorResponse::new(Some(ErrorCode::Unauthorized), Some("No user_id provided".into()));
+            //         return Ok(warp::reply::json(&error))
+            //     }
+            // };
             let auth_token = match &auth_token {
                 Some(token) => token,
                 None => {
@@ -186,13 +178,14 @@ impl Handler {
             };
 
             // Perform the verification
-            match CnctdAuth::verify_auth_token(secret.clone(), auth_token, user_id) {
-                Ok(_) => (),
-                Err(_) => {
-                    let error = ErrorResponse::new(Some(ErrorCode::Unauthorized), Some("Invalid auth_token".into()));
+            match CnctdAuth::verify_auth_token(secret.clone(), auth_token) {
+                Ok(user_id) => user_id,
+                Err(e) => {
+                    let error = ErrorResponse::new(Some(ErrorCode::Unauthorized), Some(e.to_string()));
                     return Ok(warp::reply::json(&error))
                 }
-            }
+            };
+
         }
 
         let client_id = uuid::Uuid::new_v4().to_string();

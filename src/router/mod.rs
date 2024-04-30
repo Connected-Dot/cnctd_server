@@ -6,6 +6,7 @@ pub mod request;
 use std::{future::Future, pin::Pin};
 use std::fmt::Debug;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::server::handlers::RedirectQuery;
 
@@ -20,13 +21,11 @@ pub enum HttpMethod {
     DELETE,
 }
 
-pub trait RestRouterFunction<DataIn, DataOut>: Send + Sync + Clone
+pub trait RestRouterFunction: Send + Sync + Clone
 where
     Self: Send + Sync + Clone,
-    DataIn: Serialize + for<'de> Deserialize<'de> + Clone + Debug,
-    DataOut: Serialize + for<'de> Deserialize<'de> + Clone + Debug,
 {
-    fn route(&self, method: HttpMethod, path: String, msg: DataIn, auth_token: Option<String>) -> Pin<Box<dyn Future<Output = Result<SuccessResponse<DataOut>, ErrorResponse>> + Send>>;
+    fn route(&self, method: HttpMethod, path: String, data: Option<Value>, auth_token: Option<String>) -> Pin<Box<dyn Future<Output = Result<SuccessResponse, ErrorResponse>> + Send>>;
     fn route_redirect(&self, msg: RedirectQuery) -> Pin<Box<dyn Future<Output = String> + Send>>;
 }
 

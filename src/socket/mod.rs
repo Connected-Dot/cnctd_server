@@ -78,7 +78,7 @@ pub static CLIENTS: InitCell<Arc<RwLock<HashMap<String, Client>>>> = InitCell::n
 pub struct CnctdSocket;
 
 impl CnctdSocket {
-    pub fn build_route<M, Resp, R>(config: SocketConfig<R>) -> warp::filters::BoxedFilter<(impl warp::Reply,)>
+    pub fn build_routes<M, Resp, R>(config: SocketConfig<R>) -> warp::filters::BoxedFilter<(impl warp::Reply,)>
     where
         M: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static,
         Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static, 
@@ -160,7 +160,7 @@ impl CnctdSocket {
         let parsed_port = port.parse::<u16>()?;
         let socket_addr = std::net::SocketAddr::from((ip_address, parsed_port));
         let config = SocketConfig::new(router, secret, redis_url);
-        let routes = Self::build_route(config);
+        let routes = Self::build_routes(config);
 
         warp::serve(routes).run(socket_addr).await;
     

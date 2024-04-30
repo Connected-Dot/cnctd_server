@@ -1,18 +1,20 @@
 pub mod server_info;
 pub mod handlers;
 
-use std::{fmt::Debug, sync::Arc, time::Duration};
+use std::{convert::Infallible, fmt::Debug, sync::Arc, time::Duration};
 
+use async_graphql_warp::{graphql, GraphQLResponse};
 use local_ip_address::local_ip;
 use serde::{de::DeserializeOwned, Serialize};
-use warp::{filters::path::FullPath, Filter};
+use serde_json::Value;
+use warp::{filters::path::FullPath, Filter, http::Response as HttpResponse};
 
 use crate::{
-    router::{RestRouterFunction, SocketRouterFunction}, server::server_info::{ServerInfo, SERVER_INFO}, socket::{CnctdSocket, SocketConfig}, utils::{cors, spa}
+    graphql::{CnctdGraphQL, GraphQLConfig}, router::{RestRouterFunction, SocketRouterFunction}, server::server_info::{ServerInfo, SERVER_INFO}, socket::{CnctdSocket, SocketConfig}, utils::{cors, spa}
 };
 
 use self::handlers::{RedirectQuery, Handler, RedirectHandler};
-
+use async_graphql::{self, http::GraphiQLSource, EmptySubscription, Schema};
 
 
 
@@ -40,15 +42,15 @@ impl<R> ServerConfig<R> {
 pub struct CnctdServer;
 
 impl CnctdServer {
-    pub async fn start<Req, Resp, R, SReq, SResp, SR>(server_config: ServerConfig<R>, socket_config: Option<SocketConfig<SR>>) 
+    pub async fn start<R, SReq, SResp, SR, Q, M>(server_config: ServerConfig<R>, socket_config: Option<SocketConfig<SR>>, graphql_config: GraphQLConfig<Q, M>) 
     -> anyhow::Result<()>
     where
-        Req: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static,
-        Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static, 
-        R: RestRouterFunction<Req, Resp> + 'static,
+        R: RestRouterFunction + 'static,
         SReq: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static,
         SResp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static, 
         SR: SocketRouterFunction<SReq, SResp> + 'static,
+        Q: async_graphql::ObjectType + Send + Sync + 'static,
+        M: async_graphql::ObjectType + Send + Sync + 'static,
     {
         let server_router = Arc::new(server_config.router);
 
@@ -73,9 +75,13 @@ impl CnctdServer {
 
                 SERVER_INFO.set(server_info.clone());                
 
-                let rest_routes = Self::build_routes::<Req, Resp, R>(&server_router);
+                let rest_routes = Self::build_rest_routes::<R>(&server_router);
+                let socket_routes = CnctdSocket::build_routes(config.clone());
+                let graphql_routes = CnctdGraphQL::build_routes(graphql_config);
+
                 let routes = rest_routes
-                    .or(CnctdSocket::build_route(config.clone()))
+                    .or(socket_routes)
+                    .or(graphql_routes)
                     .or(web_app)
                     .with(cors())
                     .boxed();
@@ -105,7 +111,7 @@ impl CnctdServer {
                 warp::serve(routes).run(socket).await;
             }
             None => {
-                let rest_routes = Self::build_routes::<Req, Resp, R>(&server_router);
+                let rest_routes = Self::build_rest_routes::<R>(&server_router);
                 let routes = rest_routes
                     .or(web_app)
                     .with(cors())
@@ -157,8 +163,8 @@ impl CnctdServer {
             .and(warp::get())
             .and(warp::query::<Req>())
             .and(with_handler(handler.clone()))
-            .and_then(|msg, handler| {
-                Handler::api_redirect(msg, handler)
+            .and_then(|data, handler| {
+                Handler::api_redirect(data, handler)
             });
     
         let routes = rest_route.with(cors).boxed();
@@ -184,11 +190,9 @@ impl CnctdServer {
         }
     }
 
-    fn build_routes<Req, Resp, R>(router: &Arc<R>) -> warp::filters::BoxedFilter<(impl warp::Reply,)>
+    fn build_rest_routes<R>(router: &Arc<R>) -> warp::filters::BoxedFilter<(impl warp::Reply,)>
     where
-        Req: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static,
-        Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static, 
-        R: RestRouterFunction<Req, Resp> + 'static,
+        R: RestRouterFunction + 'static,
     {
         let cloned_router_for_post = Arc::clone(&router);
         let cloned_router_for_get = Arc::clone(&router);
@@ -201,10 +205,10 @@ impl CnctdServer {
             .and(warp::path::full())
             .and(warp::header::optional("Authorization"))
             .and(warp::body::json())
-            .and_then(move |path: FullPath, auth_header: Option<String>, msg: Req| {
+            .and_then(move |path: FullPath, auth_header: Option<String>, data: Option<Value>| {
                 let router_clone = cloned_router_for_post.clone();
                 async move {
-                    Handler::post(path.as_str().to_string(), msg, auth_header, router_clone).await
+                    Handler::post(path.as_str().to_string(), data, auth_header, router_clone).await
                 }
             });
 
@@ -212,11 +216,11 @@ impl CnctdServer {
             .and(warp::get())
             .and(warp::path::full())
             .and(warp::header::optional("Authorization"))
-            .and(warp::query::<Req>())
-            .and_then(move |path: FullPath, auth_header: Option<String>, msg: Req| {
+            .and(warp::query::<Option<Value>>())
+            .and_then(move |path: FullPath, auth_header: Option<String>, data: Option<Value>| {
                 let router_clone = cloned_router_for_get.clone();
                 async move {
-                    Handler::get(path.as_str().to_string(), msg, auth_header, router_clone).await
+                    Handler::get(path.as_str().to_string(), data, auth_header, router_clone).await
                 }
             });
 
@@ -225,10 +229,10 @@ impl CnctdServer {
             .and(warp::path::full())
             .and(warp::header::optional("Authorization"))
             .and(warp::body::json())
-            .and_then(move |path: FullPath, auth_header: Option<String>, msg: Req| {
+            .and_then(move |path: FullPath, auth_header: Option<String>, data: Option<Value>| {
                 let router_clone = cloned_router_for_put.clone();
                 async move {
-                    Handler::put(path.as_str().to_string(), msg, auth_header, router_clone).await
+                    Handler::put(path.as_str().to_string(), data, auth_header, router_clone).await
                 }
             });
 
@@ -237,20 +241,20 @@ impl CnctdServer {
             .and(warp::path::full())
             .and(warp::header::optional("Authorization"))
             .and(warp::body::json())
-            .and_then(move |path: FullPath, auth_header: Option<String>, msg: Req| {
+            .and_then(move |path: FullPath, auth_header: Option<String>, data: Option<Value>| {
                 let router_clone = cloned_router_for_delete.clone();
                 async move {
-                    Handler::delete(path.as_str().to_string(), msg, auth_header, router_clone).await
+                    Handler::delete(path.as_str().to_string(), data, auth_header, router_clone).await
                 }
             });
 
         let redirect_route = warp::path("redirect")
             .and(warp::get())
             .and(warp::query::<RedirectQuery>())
-            .and_then(move |msg: RedirectQuery| {
+            .and_then(move |data: RedirectQuery| {
                 let router_clone = cloned_router_for_redirect.clone();
                 async move {
-                    Handler::get_redirect(msg, router_clone).await
+                    Handler::get_redirect(data, router_clone).await
                 }
             });
 

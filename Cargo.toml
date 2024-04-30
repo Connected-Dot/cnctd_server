@@ -12,6 +12,8 @@ keywords = ["module"]
 
 [dependencies]
 anyhow = "1.0.82"
+async-graphql = "7.0.3"
+async-graphql-warp = "7.0.3"
 chrono = { version = "0.4.37", features = ["serde"]}
 cnctd_aws = "0.1.5"
 cnctd_redis = { version = "0.1.7" }

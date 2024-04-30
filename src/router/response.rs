@@ -73,15 +73,15 @@ impl SuccessCode {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct SuccessResponse<DataOut> {
+pub struct SuccessResponse {
     pub success: bool,
     pub status_code: SuccessCode,
     pub msg: Option<String>,
-    pub data: Option<DataOut>,
+    pub data: Option<Value>,
 }
 
-impl <DataOut> SuccessResponse<DataOut> {
-    pub fn new(status_code: Option<SuccessCode>, msg: Option<String>, data: Option<DataOut>) -> Self {
+impl SuccessResponse {
+    pub fn new(status_code: Option<SuccessCode>, msg: Option<String>, data: Option<Value>) -> Self {
         let status_code = status_code.unwrap_or(SuccessCode::OK);
         Self { success: true, status_code,  msg, data }
     }
