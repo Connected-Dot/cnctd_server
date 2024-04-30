@@ -268,12 +268,12 @@ impl CnctdServer {
         routes.boxed()
     }
 
-    pub fn path_to_resource_and_action(path: &str) -> (String, Option<String>) {
+    pub fn path_to_resource_and_transaction(path: &str) -> (String, Option<String>) {
         let mut parts = path.trim_start_matches("/api/").split('/');
         let resource = parts.next().unwrap_or_default().to_string();
-        let action = parts.next().map(|s| s.to_string());
+        let transaction = parts.next().map(|s| s.to_string());
     
-        (resource, action)
+        (resource, transaction)
     }
 }
 
