@@ -62,6 +62,8 @@ impl CnctdServer {
         let socket = std::net::SocketAddr::from((ip_address, parsed_port));
         
 
+
+        
         match socket_config {
             Some(config) => {
                 let server_info = ServerInfo::new(
@@ -79,14 +81,13 @@ impl CnctdServer {
                 let socket_routes = CnctdSocket::build_routes(config.clone());
                 let graphql_routes = CnctdGraphQL::build_routes(graphql_config);
 
+                
                 let routes = rest_routes
                     .or(socket_routes)
                     .or(graphql_routes)
                     .or(web_app)
                     .with(cors())
                     .boxed();
-                
-
 
                 println!("server and socket running at http://{}:{}", my_local_ip, parsed_port);
                 println!("server info: {:?}", server_info);
