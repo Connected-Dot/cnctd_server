@@ -1,6 +1,7 @@
 pub mod response;
 pub mod message;
 pub mod request;
+pub mod error;
 
 
 use std::{future::Future, pin::Pin};
@@ -10,7 +11,8 @@ use serde_json::Value;
 
 use crate::server::handlers::RedirectQuery;
 
-use self::response::{ErrorResponse, SuccessResponse};
+use self::error::ErrorResponse;
+use self::response::SuccessResponse;
 
 
 #[derive(Debug)]

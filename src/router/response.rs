@@ -1,3 +1,5 @@
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use warp::{http::StatusCode, reply::Json};
@@ -10,55 +12,7 @@ pub enum SuccessCode {
     NoContent = 204,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
-pub enum ErrorCode {
-    BadRequest = 400,
-    Unauthorized = 401,
-    Forbidden = 403,
-    NotFound = 404,
-    MethodNotAllowed = 405,
-    RequestTimeout = 408,
-    TooManyRequests = 429,
-    InternalServerError = 500,
-    BadGateway = 502,
-    ServiceUnavailable = 503,
-    GatewayTimeout = 504,
-}
 
-impl ErrorCode {
-    pub fn to_warp_status_code(&self) -> StatusCode {
-        match self {
-            Self::BadRequest => StatusCode::BAD_REQUEST,
-            Self::Unauthorized => StatusCode::UNAUTHORIZED,
-            Self::Forbidden => StatusCode::FORBIDDEN,
-            Self::NotFound => StatusCode::NOT_FOUND,
-            Self::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
-            Self::RequestTimeout => StatusCode::REQUEST_TIMEOUT,
-            Self::TooManyRequests => StatusCode::TOO_MANY_REQUESTS,
-            Self::InternalServerError => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::BadGateway => StatusCode::BAD_GATEWAY,
-            Self::ServiceUnavailable => StatusCode::SERVICE_UNAVAILABLE,
-            Self::GatewayTimeout => StatusCode::GATEWAY_TIMEOUT,
-        }
-    }
-
-    pub fn from_status_code(status_code: StatusCode) -> Self {
-        match status_code {
-            StatusCode::BAD_REQUEST => Self::BadRequest,
-            StatusCode::UNAUTHORIZED => Self::Unauthorized,
-            StatusCode::FORBIDDEN => Self::Forbidden,
-            StatusCode::NOT_FOUND => Self::NotFound,
-            StatusCode::METHOD_NOT_ALLOWED => Self::MethodNotAllowed,
-            StatusCode::REQUEST_TIMEOUT => Self::RequestTimeout,
-            StatusCode::TOO_MANY_REQUESTS => Self::TooManyRequests,
-            StatusCode::INTERNAL_SERVER_ERROR => Self::InternalServerError,
-            StatusCode::BAD_GATEWAY => Self::BadGateway,
-            StatusCode::SERVICE_UNAVAILABLE => Self::ServiceUnavailable,
-            StatusCode::GATEWAY_TIMEOUT => Self::GatewayTimeout,
-            _ => Self::InternalServerError,
-        }
-    }
-}
 
 impl SuccessCode {
     pub fn to_warp_status_code(&self) -> StatusCode {
@@ -75,31 +29,55 @@ impl SuccessCode {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SuccessResponse {
     pub success: bool,
-    pub status_code: SuccessCode,
+    pub status: SuccessCode,
     pub msg: Option<String>,
     pub data: Option<Value>,
 }
 
 impl SuccessResponse {
-    pub fn new(status_code: Option<SuccessCode>, msg: Option<String>, data: Option<Value>) -> Self {
-        let status_code = status_code.unwrap_or(SuccessCode::OK);
-        Self { success: true, status_code,  msg, data }
+    pub fn new(status: Option<SuccessCode>, msg: Option<String>, data: Option<Value>) -> Self {
+        let status = status.unwrap_or(SuccessCode::OK);
+        Self { success: true, status,  msg, data }
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ErrorResponse {
-    pub success: bool,
-    pub status_code: ErrorCode,
-    pub msg: Option<String>,
+#[macro_export]
+macro_rules! success_response {
+    () => {
+        SuccessResponse::new(None, None, None)
+    };
+    ($status:expr) => {
+        SuccessResponse::new(Some($status), None, None)
+    };
+    ($status:expr, $msg:expr) => {
+        SuccessResponse::new(Some($status), Some($msg.to_string()), None)
+    };
+    ($status:expr, $msg:expr, $data:expr) => {
+        SuccessResponse::new(Some($status), Some($msg.to_string()), Some($data))
+    };
 }
 
-impl ErrorResponse {
-    pub fn new(error_code: Option<ErrorCode>, msg: Option<String>) -> Self {
-        let status_code = error_code.unwrap_or(ErrorCode::NotFound);
-        Self { success: false, status_code, msg }
-    }
+#[macro_export]
+macro_rules! success_data {
+    ($data:expr) => {
+        SuccessResponse::new(None, None, Some($data))
+    };
 }
+
+#[macro_export]
+macro_rules! success_msg {
+    ($msg:expr) => {
+        SuccessResponse::new(None, Some($msg.to_string()), None)
+    };
+}
+
+#[macro_export]
+macro_rules! created {
+    ($msg:expr, $data:expr) => {
+        SuccessResponse::new(Some(SuccessCode::Created), Some($msg.to_string()), Some($data))
+    };
+}
+
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SocketResponse {

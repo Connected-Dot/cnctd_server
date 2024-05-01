@@ -217,8 +217,8 @@ impl CnctdServer {
             .and(warp::get())
             .and(warp::path::full())
             .and(warp::header::optional("Authorization"))
-            .and(warp::query::<Option<Value>>())
-            .and_then(move |path: FullPath, auth_header: Option<String>, data: Option<Value>| {
+            .and(warp::query::<Value>())
+            .and_then(move |path: FullPath, auth_header: Option<String>, data: Value| {
                 let router_clone = cloned_router_for_get.clone();
                 async move {
                     Handler::get(path.as_str().to_string(), data, auth_header, router_clone).await
@@ -241,8 +241,8 @@ impl CnctdServer {
             .and(warp::delete())
             .and(warp::path::full())
             .and(warp::header::optional("Authorization"))
-            .and(warp::body::json())
-            .and_then(move |path: FullPath, auth_header: Option<String>, data: Option<Value>| {
+            .and(warp::query::<Value>())
+            .and_then(move |path: FullPath, auth_header: Option<String>, data: Value| {
                 let router_clone = cloned_router_for_delete.clone();
                 async move {
                     Handler::delete(path.as_str().to_string(), data, auth_header, router_clone).await
@@ -268,12 +268,12 @@ impl CnctdServer {
         routes.boxed()
     }
 
-    pub fn path_to_resource_and_transaction(path: &str) -> (String, Option<String>) {
+    pub fn path_to_resource_and_operation(path: &str) -> (String, Option<String>) {
         let mut parts = path.trim_start_matches("/api/").split('/');
         let resource = parts.next().unwrap_or_default().to_string();
-        let transaction = parts.next().map(|s| s.to_string());
+        let operation = parts.next().map(|s| s.to_string());
     
-        (resource, transaction)
+        (resource, operation)
     }
 }
 

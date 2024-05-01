@@ -6,7 +6,8 @@ use serde_json::{json, Value};
 use warp::{reject::Rejection, reply::Reply};
 use warp::hyper::Uri;
 
-use crate::router::response::{ErrorCode, ErrorResponse, SuccessCode, SuccessResponse};
+use crate::router::error::{ErrorCode, ErrorResponse};
+use crate::router::response::{SuccessCode, SuccessResponse};
 use crate::router::HttpMethod;
 use crate::{auth::CnctdAuth, router::{RestRouterFunction}, socket::{Client, CnctdSocket, CLIENTS}};
 
@@ -42,37 +43,37 @@ impl Handler {
     {
         match router.route(HttpMethod::POST, path, data, auth_token).await {
             Ok(response) => {
-                let status_code = &response.status_code.to_warp_status_code();
+                let status = &response.status.to_warp_status_code();
                 let json = warp::reply::json(&response);
 
-                Ok(warp::reply::with_status(json, status_code.clone()))
+                Ok(warp::reply::with_status(json, status.clone()))
             }
             Err(e) => {
-                let status_code = &e.status_code.to_warp_status_code();
+                let status = &e.status.to_warp_status_code();
                 let json = warp::reply::json(&e);
             
-                Ok(warp::reply::with_status(json, status_code.clone()))
+                Ok(warp::reply::with_status(json, status.clone()))
             }
         }
     }
     
-    pub async fn get<R>(path: String, data: Option<Value>, auth_token: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
+    pub async fn get<R>(path: String, data: Value, auth_token: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
     where
         R: RestRouterFunction,
         
     {
-        match router.route(HttpMethod::GET, path, data, auth_token).await {
+        match router.route(HttpMethod::GET, path, Some(data), auth_token).await {
             Ok(response) => {
-                let status_code = &response.status_code.to_warp_status_code();
+                let status = &response.status.to_warp_status_code();
                 let json = warp::reply::json(&response);
 
-                Ok(warp::reply::with_status(json, status_code.clone()))
+                Ok(warp::reply::with_status(json, status.clone()))
             }
             Err(e) => {
-                let status_code = &e.status_code.to_warp_status_code();
+                let status = &e.status.to_warp_status_code();
                 let json = warp::reply::json(&e);
             
-                Ok(warp::reply::with_status(json, status_code.clone()))
+                Ok(warp::reply::with_status(json, status.clone()))
             }
         }
     }
@@ -84,38 +85,38 @@ impl Handler {
     {
         match router.route(HttpMethod::PUT, path, data, auth_token).await {
             Ok(response) => {
-                let status_code = &response.status_code.to_warp_status_code();
+                let status = &response.status.to_warp_status_code();
                 let json = warp::reply::json(&response);
 
-                Ok(warp::reply::with_status(json, status_code.clone()))
+                Ok(warp::reply::with_status(json, status.clone()))
             }
             Err(e) => {
-                let status_code = &e.status_code.to_warp_status_code();
+                let status = &e.status.to_warp_status_code();
                 let json = warp::reply::json(&e);
             
-                Ok(warp::reply::with_status(json, status_code.clone()))
+                Ok(warp::reply::with_status(json, status.clone()))
             }
         }
     }
 
-    pub async fn delete<R>(path: String, data: Option<Value>, auth_token: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
+    pub async fn delete<R>(path: String, data: Value, auth_token: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
     where
 
         R: RestRouterFunction,
         
     {
-        match router.route(HttpMethod::DELETE, path, data, auth_token).await {
+        match router.route(HttpMethod::DELETE, path, Some(data), auth_token).await {
             Ok(response) => {
-                let status_code = &response.status_code.to_warp_status_code();
+                let status = &response.status.to_warp_status_code();
                 let json = warp::reply::json(&response);
 
-                Ok(warp::reply::with_status(json, status_code.clone()))
+                Ok(warp::reply::with_status(json, status.clone()))
             }
             Err(e) => {
-                let status_code = &e.status_code.to_warp_status_code();
+                let status = &e.status.to_warp_status_code();
                 let json = warp::reply::json(&e);
             
-                Ok(warp::reply::with_status(json, status_code.clone()))
+                Ok(warp::reply::with_status(json, status.clone()))
             }
         }
     }
