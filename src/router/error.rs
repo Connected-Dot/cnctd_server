@@ -9,6 +9,7 @@ pub enum ErrorCode {
     Unauthorized = 401,
     Forbidden = 403,
     NotFound = 404,
+    UnprocessableEntity = 422,
     MethodNotAllowed = 405,
     RequestTimeout = 408,
     TooManyRequests = 429,
@@ -25,6 +26,7 @@ impl ErrorCode {
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
             Self::Forbidden => StatusCode::FORBIDDEN,
             Self::NotFound => StatusCode::NOT_FOUND,
+            Self::UnprocessableEntity => StatusCode::UNPROCESSABLE_ENTITY,
             Self::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
             Self::RequestTimeout => StatusCode::REQUEST_TIMEOUT,
             Self::TooManyRequests => StatusCode::TOO_MANY_REQUESTS,
@@ -41,6 +43,7 @@ impl ErrorCode {
             StatusCode::UNAUTHORIZED => Self::Unauthorized,
             StatusCode::FORBIDDEN => Self::Forbidden,
             StatusCode::NOT_FOUND => Self::NotFound,
+            StatusCode::UNPROCESSABLE_ENTITY => Self::UnprocessableEntity,
             StatusCode::METHOD_NOT_ALLOWED => Self::MethodNotAllowed,
             StatusCode::REQUEST_TIMEOUT => Self::RequestTimeout,
             StatusCode::TOO_MANY_REQUESTS => Self::TooManyRequests,
@@ -48,6 +51,23 @@ impl ErrorCode {
             StatusCode::BAD_GATEWAY => Self::BadGateway,
             StatusCode::SERVICE_UNAVAILABLE => Self::ServiceUnavailable,
             StatusCode::GATEWAY_TIMEOUT => Self::GatewayTimeout,
+            _ => Self::InternalServerError,
+        }
+    }
+
+    pub fn from_u16(code: u16) -> Self {
+        match code {
+            400 => Self::BadRequest,
+            401 => Self::Unauthorized,
+            403 => Self::Forbidden,
+            404 => Self::NotFound,
+            405 => Self::MethodNotAllowed,
+            408 => Self::RequestTimeout,
+            422 => Self::UnprocessableEntity,
+            429 => Self::TooManyRequests,
+            500 => Self::InternalServerError,
+            502 => Self::BadGateway,
+            503 => Self::ServiceUnavailable,
             _ => Self::InternalServerError,
         }
     }
