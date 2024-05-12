@@ -23,7 +23,6 @@ where
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ClientQuery {
-    user_id: Option<String>,
     subscriptions: Option<String>,
 }
 
@@ -127,9 +126,9 @@ impl Handler {
         R: RestRouterFunction,
     {
         // println!("File router. path: {}", path);
-        println!("File HANDLER, data: {:?}", data);
+        // println!("File HANDLER, data: {:?}", data);
         let url = router.route_redirect(data).await;
-        println!("File HANDLER, url: {}", url);
+        // println!("File HANDLER, url: {}", url);
         match url.parse::<Uri>() {
             Ok(uri) => Ok(warp::redirect::found(uri).into_response()),
             Err(_) => Err(warp::reject::not_found())
@@ -150,7 +149,7 @@ impl Handler {
     }
 
     pub async fn register_socket_client(client_query: ClientQuery, secret: Option<Vec<u8>>, auth_token: Option<String>) -> Result<impl warp::Reply> {
-        
+        let client_id = uuid::Uuid::new_v4().to_string();
         let subs = match client_query.subscriptions {
             Some(subs) => {
                 subs.trim_matches(|c| c == '[' || c == ']')
@@ -161,15 +160,7 @@ impl Handler {
             None => vec![]
         };
         
-        if let Some(secret) = &secret {
-            // Ensure both user_id and auth_token are provided
-            // let user_id = match &client_query.user_id {
-            //     Some(id) => id,
-            //     None => {
-            //         let error = ErrorResponse::new(Some(ErrorCode::Unauthorized), Some("No user_id provided".into()));
-            //         return Ok(warp::reply::json(&error))
-            //     }
-            // };
+        let user_id = if let Some(secret) = &secret {
             let auth_token = match &auth_token {
                 Some(token) => token,
                 None => {
@@ -179,7 +170,7 @@ impl Handler {
             };
 
             // Perform the verification
-            match CnctdAuth::verify_auth_token(secret.clone(), auth_token) {
+            let user_id = match CnctdAuth::verify_auth_token(secret.clone(), auth_token) {
                 Ok(user_id) => user_id,
                 Err(e) => {
                     let error = ErrorResponse::new(Some(ErrorCode::Unauthorized), Some(e.to_string()));
@@ -187,10 +178,13 @@ impl Handler {
                 }
             };
 
-        }
+            user_id
 
-        let client_id = uuid::Uuid::new_v4().to_string();
-        let client = Client::new(client_query.user_id.unwrap_or(client_id.clone()), subs);
+        } else {
+            client_id.clone()
+        };
+
+        let client = Client::new(user_id, subs);
         let clients_lock = match CLIENTS.try_get() {
             Some(clients) => clients,
             None => {
@@ -201,8 +195,9 @@ impl Handler {
         let mut clients = clients_lock.write().await; // Lock the CLIENTS for write access
         
         clients.insert(client_id.clone(), client);
+        println!("clients: {:?}", clients);
 
-        let response = SuccessResponse::new(Some(SuccessCode::Created), Some("Client registered".into()), Some(json!({ "client_id": client_id })));
+        let response = SuccessResponse::new(Some(SuccessCode::Created), Some("Client registered".into()), Some(client_id.clone().into()));
         let client_id_clone = client_id.clone();
         
         tokio::spawn(async move {
