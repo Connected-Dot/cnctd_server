@@ -263,7 +263,8 @@ impl CnctdServer {
             .or(post_route)
             .or(get_route)
             .or(put_route)
-            .or(delete_route);
+            .or(delete_route)
+            .with(cors());
 
         routes.boxed()
     }
