@@ -5,7 +5,7 @@ use warp::{filters::cors::Builder, Filter, reply::{with_status, with_header}, ht
 pub fn cors() -> Builder {
     let cors = warp::cors()
         .allow_any_origin()
-        .allow_headers(vec!["User-Agent", "Sec-Fetch-Mode", "Referer", "Origin", "Access-Control-Request-Method", "Access-Control-Request-Headers", "Content-Type"])
+        .allow_headers(vec!["User-Agent", "Sec-Fetch-Mode", "Referer", "Origin", "Access-Control-Request-Method", "Access-Control-Request-Headers", "Content-Type", "Authorization"])
         .allow_methods(vec!["POST", "GET", "PUT", "DELETE", "OPTIONS"]);
     cors
 }
