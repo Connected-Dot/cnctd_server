@@ -25,16 +25,18 @@ pub struct ServerConfig<R> {
     pub client_dir: Option<String>,
     pub router: R,
     pub heartbeat: Option<Duration>,
+    pub allowed_origins: Option<Vec<String>>,
 }
 
 impl<R> ServerConfig<R> {
-    pub fn new(id: &str, port: &str, client_dir: Option<String>, router: R, heartbeat: Option<u64>) -> Self {
+    pub fn new(id: &str, port: &str, client_dir: Option<String>, router: R, heartbeat: Option<u64>, allowed_origins: Option<Vec<String>>) -> Self {
         Self {
             id: id.into(),
             port: port.into(),
             client_dir,
             router,
             heartbeat: heartbeat.map(Duration::from_secs),
+            allowed_origins,
         }
     }
 }
@@ -86,7 +88,7 @@ impl CnctdServer {
                     .or(socket_routes)
                     .or(graphql_routes)
                     .or(web_app)
-                    .with(cors())
+                    .with(cors(server_config.allowed_origins))
                     .boxed();
 
                 println!("server and socket running at http://{}:{}", my_local_ip, parsed_port);
@@ -115,7 +117,7 @@ impl CnctdServer {
                 let rest_routes = Self::build_rest_routes::<R>(&server_router);
                 let routes = rest_routes
                     .or(web_app)
-                    .with(cors())
+                    .with(cors(server_config.allowed_origins))
                     .boxed();
 
                 let server_info = ServerInfo::new(
@@ -157,7 +159,7 @@ impl CnctdServer {
         H: RedirectHandler<Req> + 'static,
     {
         let handler = Arc::new(handler);
-        let cors = cors();
+        let cors = cors(None);
         let my_local_ip = local_ip().unwrap_or([0, 0, 0, 0].into());
     
         let rest_route = warp::path::end()
@@ -263,8 +265,7 @@ impl CnctdServer {
             .or(post_route)
             .or(get_route)
             .or(put_route)
-            .or(delete_route)
-            .with(cors());
+            .or(delete_route);
 
         routes.boxed()
     }

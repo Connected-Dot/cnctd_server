@@ -2,11 +2,15 @@ use std::fs;
 
 use warp::{filters::cors::Builder, Filter, reply::{with_status, with_header}, http::StatusCode};
 
-pub fn cors() -> Builder {
-    let cors = warp::cors()
-        .allow_any_origin()
+pub fn cors(origins: Option<Vec<String>>) -> Builder {
+    let mut cors = warp::cors()
         .allow_headers(vec!["User-Agent", "Sec-Fetch-Mode", "Referer", "Origin", "Access-Control-Request-Method", "Access-Control-Request-Headers", "Content-Type", "Authorization"])
         .allow_methods(vec!["POST", "GET", "PUT", "DELETE", "OPTIONS"]);
+    if let Some(origins) = origins {
+        cors = cors.allow_origins(origins.iter().map(|s| s.as_str()).collect::<Vec<&str>>());
+    } else {
+        cors = cors.allow_any_origin();
+    }
     cors
 }
 
