@@ -52,11 +52,23 @@ fn serve_index_with_range(client_files_dir: String) -> warp::filters::BoxedFilte
 
 pub fn spa(dir: Option<String>) -> warp::filters::BoxedFilter<(Box<dyn warp::Reply>,)> {
     if let Some(directory) = dir {
-        warp::fs::dir(directory)
+        let static_files = warp::fs::dir(directory.clone())
             .map(|file: warp::fs::File| {
                 let response: Box<dyn warp::Reply> = Box::new(file);
                 response
             })
+            .boxed();
+
+        let fallback_to_index = warp::fs::file(format!("{}/index.html", directory))
+            .map(|file: warp::fs::File| {
+                let response: Box<dyn warp::Reply> = Box::new(file);
+                response
+            })
+            .boxed();
+
+        static_files
+            .or(fallback_to_index)
+            .unify()
             .boxed()
     } else {
         warp::any()
@@ -67,8 +79,6 @@ pub fn spa(dir: Option<String>) -> warp::filters::BoxedFilter<(Box<dyn warp::Rep
             .boxed()
     }
 }
-
-
 
 
 
