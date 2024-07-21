@@ -344,19 +344,18 @@ impl CnctdSocket {
     }
 
     pub async fn get_client_id(user_id: &str) -> Option<String> {
-        let clients = match CLIENTS.try_get() {
-            Some(clients) => clients.read().await,
-            None => return None,
-        };
-        let client_id = clients.iter().find_map(|(client_id, client)| {
-            if client.user_id == user_id {
+        // Attempt to get the read lock on the clients
+        let clients = CLIENTS.try_get()?.read().await;
+        
+        // Find the client_id for the given user_id
+        clients.iter().find_map(|(client_id, client)| {
+            if client.user_id.as_str() == user_id {
+                println!("Found client_id for user_id {}: {}", user_id, client_id);
                 Some(client_id.clone())
             } else {
                 None
             }
-        });
-
-        client_id
+        })
     }
 
     pub async fn push_client_to_redis(client_id: &str, client: &Client) -> anyhow::Result<()> {
