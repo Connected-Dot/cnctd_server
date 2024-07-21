@@ -171,9 +171,9 @@ impl CnctdSocket {
     pub async fn broadcast_message(msg: &Message) -> anyhow::Result<()> {
         let clients = CLIENTS.try_get().ok_or_else(|| anyhow!("Clients not initialized"))?.read().await;
         
-        for (user_id, client) in clients.iter() {
+        for (client_id, client) in clients.iter() {
             if client.subscriptions.contains(&msg.channel) {
-                Self::message_user(&user_id, msg).await?;
+                Self::message_client(&client_id, msg).await?;
             }
         }
     
