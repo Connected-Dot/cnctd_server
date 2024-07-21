@@ -180,7 +180,7 @@ impl CnctdSocket {
         Ok(())
     }
 
-    pub async fn message_user<M>(client_id: &str, msg: &M) -> anyhow::Result<()>
+    pub async fn message_client<M>(client_id: &str, msg: &M) -> anyhow::Result<()>
     where M: Serialize + Debug + DeserializeOwned + Clone {
         let client = Self::get_client(client_id).await?;
         
@@ -197,6 +197,12 @@ impl CnctdSocket {
         }
         
         Ok(())
+    }
+
+    pub async fn message_user<M>(user_id: &str, msg: &M) -> anyhow::Result<()>
+    where M: Serialize + Debug + DeserializeOwned + Clone {
+        let client_id = Self::get_client_id(user_id).await.ok_or_else(|| anyhow!("No client found for user_id: {}", user_id))?;
+        Self::message_client(&client_id, msg).await
     }
     
 
