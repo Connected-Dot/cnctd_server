@@ -195,7 +195,7 @@ impl Handler {
         let mut clients = clients_lock.write().await; // Lock the CLIENTS for write access
         
         clients.insert(client_id.clone(), client);
-        println!("clients: {:?}", clients);
+        println!("clients length: {:?}", clients.len());
 
         let response = SuccessResponse::new(Some(SuccessCode::Created), Some("Client registered".into()), Some(client_id.clone().into()));
         let client_id_clone = client_id.clone();
