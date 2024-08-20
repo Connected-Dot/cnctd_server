@@ -42,11 +42,11 @@ impl<R> SocketConfig<R> {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ClientInfo {
-    client_id: String,
-    user_id: String,
-    subscriptions: Vec<String>,
-    connected: bool,
-    server_id: String,
+    pub client_id: String,
+    pub user_id: String,
+    pub subscriptions: Vec<String>,
+    pub connected: bool,
+    pub server_id: String,
 }
 
 #[derive(Debug, Deserialize)]
