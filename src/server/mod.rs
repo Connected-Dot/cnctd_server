@@ -3,18 +3,18 @@ pub mod handlers;
 
 use std::{convert::Infallible, fmt::Debug, sync::Arc, time::Duration};
 
-use async_graphql_warp::{graphql, GraphQLResponse};
+// use async_graphql_warp::{graphql, GraphQLResponse};
 use local_ip_address::local_ip;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
 use warp::{filters::path::FullPath, Filter, http::Response as HttpResponse};
 
 use crate::{
-    graphql::{CnctdGraphQL, GraphQLConfig}, router::{RestRouterFunction, SocketRouterFunction}, server::server_info::{ServerInfo, SERVER_INFO}, socket::{CnctdSocket, SocketConfig}, utils::{cors, spa}
+    router::{RestRouterFunction, SocketRouterFunction}, server::server_info::{ServerInfo, SERVER_INFO}, socket::{CnctdSocket, SocketConfig}, utils::{cors, spa}
 };
 
 use self::handlers::{RedirectQuery, Handler, RedirectHandler};
-use async_graphql::{self, http::GraphiQLSource, EmptySubscription, Schema};
+// use async_graphql::{self, http::GraphiQLSource, EmptySubscription, Schema};
 
 
 
@@ -44,15 +44,13 @@ impl<R> ServerConfig<R> {
 pub struct CnctdServer;
 
 impl CnctdServer {
-    pub async fn start<R, SReq, SResp, SR, Q, M>(server_config: ServerConfig<R>, socket_config: Option<SocketConfig<SR>>, graphql_config: GraphQLConfig<Q, M>) 
+    pub async fn start<R, SReq, SResp, SR, Q, M>(server_config: ServerConfig<R>, socket_config: Option<SocketConfig<SR>>) 
     -> anyhow::Result<()>
     where
         R: RestRouterFunction + 'static,
         SReq: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static,
         SResp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static, 
         SR: SocketRouterFunction<SReq, SResp> + 'static,
-        Q: async_graphql::ObjectType + Send + Sync + 'static,
-        M: async_graphql::ObjectType + Send + Sync + 'static,
     {
         let server_router = Arc::new(server_config.router);
 
@@ -81,12 +79,12 @@ impl CnctdServer {
 
                 let rest_routes = Self::build_rest_routes::<R>(&server_router);
                 let socket_routes = CnctdSocket::build_routes(config.clone());
-                let graphql_routes = CnctdGraphQL::build_routes(graphql_config);
+                // let graphql_routes = CnctdGraphQL::build_routes(graphql_config);
 
                 
                 let routes = rest_routes
                     .or(socket_routes)
-                    .or(graphql_routes)
+                    // .or(graphql_routes)
                     .or(web_app)
                     .with(cors(server_config.allowed_origins))
                     .boxed();
