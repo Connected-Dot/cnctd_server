@@ -44,7 +44,7 @@ impl<R> ServerConfig<R> {
 pub struct CnctdServer;
 
 impl CnctdServer {
-    pub async fn start<R, SReq, SResp, SR, Q, M>(server_config: ServerConfig<R>, socket_config: Option<SocketConfig<SR>>) 
+    pub async fn start<R, SReq, SResp, SR>(server_config: ServerConfig<R>, socket_config: Option<SocketConfig<SR>>) 
     -> anyhow::Result<()>
     where
         R: RestRouterFunction + 'static,
