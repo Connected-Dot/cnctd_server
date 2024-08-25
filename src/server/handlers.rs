@@ -24,6 +24,7 @@ where
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ClientQuery {
     subscriptions: Option<String>,
+    unauth_id: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -160,30 +161,33 @@ impl Handler {
             None => vec![]
         };
         
-        let user_id = if let Some(secret) = &secret {
-            let auth_token = match &auth_token {
-                Some(token) => token,
-                None => {
-                    let error = ErrorResponse::new(Some(ErrorCode::Unauthorized), Some("No auth_token provided".into()));
-                    return Ok(warp::reply::json(&error))
+        let user_id = match client_query.unauth_id {
+            Some(user_id) => user_id,
+            None => {
+                match &secret {
+                    Some(secret) => {
+                        let auth_token = match &auth_token {
+                            Some(token) => token,
+                            None => {
+                                let error = ErrorResponse::new(Some(ErrorCode::Unauthorized), Some("No auth_token provided".into()));
+                                return Ok(warp::reply::json(&error))
+                            }
+                        };
+        
+                        // Perform the verification
+                        match CnctdAuth::verify_auth_token(secret.clone(), auth_token) {
+                            Ok(user_id) => user_id,
+                            Err(e) => {
+                                let error = ErrorResponse::new(Some(ErrorCode::Unauthorized), Some(e.to_string()));
+                                return Ok(warp::reply::json(&error))
+                            }
+                        }
+                    }
+                    None => return Ok(warp::reply::json(&ErrorResponse::new(Some(ErrorCode::Unauthorized), Some("No user_id provided".into()))))
                 }
-            };
-
-            // Perform the verification
-            let user_id = match CnctdAuth::verify_auth_token(secret.clone(), auth_token) {
-                Ok(user_id) => user_id,
-                Err(e) => {
-                    let error = ErrorResponse::new(Some(ErrorCode::Unauthorized), Some(e.to_string()));
-                    return Ok(warp::reply::json(&error))
-                }
-            };
-
-            user_id
-
-        } else {
-            client_id.clone()
+            }
         };
-
+        
         let client = Client::new(user_id, subs);
         let clients_lock = match CLIENTS.try_get() {
             Some(clients) => clients,
