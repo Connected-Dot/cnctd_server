@@ -1,6 +1,6 @@
 [package]
 name = "cnctd_server"
-version = "0.2.15"
+version = "0.2.16"
 edition = "2021"
 authors = ["Connected Dot Inc.", "Kyle Ebner <kyle@cnctd.world>"]
 description = "Collection of server APIs"
@@ -34,3 +34,5 @@ tokio = { version = "1.37.0", features = ["full"] }
 tokio-stream = "0.1.15"
 uuid = { version = "1.8.0", features = ["v4"]}
 warp = "0.3.7"
+ring = "0.16.20"
+base64 = "0.22.1"
