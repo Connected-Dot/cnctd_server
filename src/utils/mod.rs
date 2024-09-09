@@ -1,10 +1,5 @@
-pub mod signed_cookie;
-pub mod rsa_signer;
-
 use std::fs;
 
-use rsa_signer::RSASigner;
-use signed_cookie::SignedCookie;
 use warp::{filters::cors::Builder, Filter, reply::{with_status, with_header}, http::StatusCode};
 
 pub fn cors(origins: Option<Vec<String>>) -> Builder {
@@ -108,27 +103,4 @@ fn parse_range_header(range: String) -> Option<(usize, usize)> {
     } else {
         None
     }
-}
-
-
-pub fn generate_signed_cookie(
-    key: &str,
-    value: &str,
-    private_key: &[u8],
-    expiration: u64,
-    domain: &str,
-    path: &str,
-) -> anyhow::Result<String> {
-    let cookie = SignedCookie::new(key.to_string(), value.to_string())
-        .with_expiration(expiration)
-        .with_domain(domain.to_string())
-        .with_path(path.to_string());
-
-    let signer = RSASigner::new(private_key.to_vec());
-    signer.sign_cookie(&cookie)
-}
-
-pub fn verify_signed_cookie(signed_cookie: &str, public_key: &[u8]) -> anyhow::Result<SignedCookie> {
-    let signer = RSASigner::new(Vec::new());  // We don't need the private key for verification
-    signer.verify_cookie(signed_cookie, public_key)
 }
