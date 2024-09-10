@@ -201,8 +201,13 @@ impl CnctdSocket {
 
     pub async fn message_user<M>(user_id: &str, msg: &M) -> anyhow::Result<()>
     where M: Serialize + Debug + DeserializeOwned + Clone {
-        let client_id = Self::get_client_id(user_id).await.ok_or_else(|| anyhow!("No client found for user_id: {}", user_id))?;
-        Self::message_client(&client_id, msg).await
+        let client_ids = Self::get_client_ids(user_id).await.ok_or_else(|| anyhow!("No client found for user_id: {}", user_id))?;
+        
+        client_ids.iter().for_each(|client_id| {
+            let _ = Self::message_client(client_id, msg);
+        });
+
+        Ok(())
     }
     
 
@@ -342,20 +347,19 @@ impl CnctdSocket {
 
         Ok(client.to_owned())
     }
-
-    pub async fn get_client_id(user_id: &str) -> Option<String> {
+    pub async fn get_client_ids(user_id: &str) -> Option<Vec<String>> {
         // Attempt to get the read lock on the clients
         let clients = CLIENTS.try_get()?.read().await;
         
-        // Find the client_id for the given user_id
-        clients.iter().find_map(|(client_id, client)| {
+        let client_ids = clients.iter().filter_map(|(client_id, client)| {
             if client.user_id.as_str() == user_id {
-                println!("Found client_id for user_id {}: {}", user_id, client_id);
                 Some(client_id.clone())
             } else {
                 None
             }
-        })
+        }).collect::<Vec<String>>();
+
+        Some(client_ids)
     }
 
     pub async fn push_client_to_redis(client_id: &str, client: &Client) -> anyhow::Result<()> {
