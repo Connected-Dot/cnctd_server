@@ -47,8 +47,8 @@ impl Message {
         Ok(())
     }
 
-    pub async fn to_user(&self, user_id: &str) -> anyhow::Result<()> {
-        CnctdSocket::message_user(user_id, self).await?;
+    pub async fn to_user(&self, user_id: &str, exclude_client_id: Option<String>) -> anyhow::Result<()> {
+        CnctdSocket::message_user(user_id, self, exclude_client_id).await?;
         
         Ok(())
     }
