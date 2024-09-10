@@ -199,11 +199,16 @@ impl CnctdSocket {
         Ok(())
     }
 
-    pub async fn message_user<M>(user_id: &str, msg: &M) -> anyhow::Result<()>
+    pub async fn message_user<M>(user_id: &str, msg: &M, exclude_client_id: Option<String>) -> anyhow::Result<()>
     where M: Serialize + Debug + DeserializeOwned + Clone {
         let client_ids = Self::get_client_ids(user_id).await.ok_or_else(|| anyhow!("No client found for user_id: {}", user_id))?;
         
         client_ids.iter().for_each(|client_id| {
+            if let Some(exclude_id) = &exclude_client_id {
+                if client_id == exclude_id {
+                    return;
+                }
+            }
             let _ = Self::message_client(client_id, msg);
         });
 
