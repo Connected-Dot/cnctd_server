@@ -224,7 +224,8 @@ impl CnctdSocket {
         Ok(())
     }
     
-    pub async fn message_subscribers(channel: &str, msg: &Message, exclude_client_id: Option<String>) -> anyhow::Result<()> {
+    pub async fn message_subscribers<M>(channel: &str, msg: &M, exclude_client_id: Option<String>) -> anyhow::Result<()>
+    where M: Serialize + Debug + DeserializeOwned + Clone {
         let client_ids = Self::get_subscriber_client_ids(channel).await;
         
         client_ids.iter().for_each(|client_id| {
