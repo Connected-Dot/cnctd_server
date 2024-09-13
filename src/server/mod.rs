@@ -205,11 +205,12 @@ impl CnctdServer {
             .and(warp::post())
             .and(warp::path::full())
             .and(warp::header::optional("Authorization"))
+            .and(warp::header::optional("Client-Id"))
             .and(warp::body::json())
-            .and_then(move |path: FullPath, auth_header: Option<String>, data: Value| {
+            .and_then(move |path: FullPath, auth_header: Option<String>, client_id: Option<String>, data: Value| {
                 let router_clone = cloned_router_for_post.clone();
                 async move {
-                    Handler::post(path.as_str().to_string(), data, auth_header, router_clone).await
+                    Handler::post(path.as_str().to_string(), data, auth_header, client_id, router_clone).await
                 }
             });
 
@@ -217,11 +218,12 @@ impl CnctdServer {
             .and(warp::get())
             .and(warp::path::full())
             .and(warp::header::optional("Authorization"))
+            .and(warp::header::optional("Client-Id"))
             .and(warp::query::<Value>())
-            .and_then(move |path: FullPath, auth_header: Option<String>, data: Value| {
+            .and_then(move |path: FullPath, auth_header: Option<String>, client_id: Option<String>, data: Value| {
                 let router_clone = cloned_router_for_get.clone();
                 async move {
-                    Handler::get(path.as_str().to_string(), data, auth_header, router_clone).await
+                    Handler::get(path.as_str().to_string(), data, auth_header, client_id, router_clone).await
                 }
             });
 
@@ -229,11 +231,12 @@ impl CnctdServer {
             .and(warp::put())
             .and(warp::path::full())
             .and(warp::header::optional("Authorization"))
+            .and(warp::header::optional("Client-Id"))
             .and(warp::body::json())
-            .and_then(move |path: FullPath, auth_header: Option<String>, data: Value| {
+            .and_then(move |path: FullPath, auth_header: Option<String>, client_id: Option<String>, data: Value| {
                 let router_clone = cloned_router_for_put.clone();
                 async move {
-                    Handler::put(path.as_str().to_string(), data, auth_header, router_clone).await
+                    Handler::put(path.as_str().to_string(), data, auth_header, client_id, router_clone).await
                 }
             });
 
@@ -241,11 +244,12 @@ impl CnctdServer {
             .and(warp::delete())
             .and(warp::path::full())
             .and(warp::header::optional("Authorization"))
+            .and(warp::header::optional("Client-Id"))
             .and(warp::query::<Value>())
-            .and_then(move |path: FullPath, auth_header: Option<String>, data: Value| {
+            .and_then(move |path: FullPath, auth_header: Option<String>, client_id: Option<String>, data: Value| {
                 let router_clone = cloned_router_for_delete.clone();
                 async move {
-                    Handler::delete(path.as_str().to_string(), data, auth_header, router_clone).await
+                    Handler::delete(path.as_str().to_string(), data, auth_header, client_id, router_clone).await
                 }
             });
 
