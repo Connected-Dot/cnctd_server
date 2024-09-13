@@ -121,14 +121,14 @@ impl Handler {
         }
     }
 
-    pub async fn get_redirect<R>(data: RedirectQuery, router: Arc<R>) -> Result<impl warp::Reply>
+    pub async fn get_redirect<R>(path: String, data: Value, auth_token: Option<String>, client_id: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
     where
 
         R: RestRouterFunction,
     {
         // println!("File router. path: {}", path);
         // println!("File HANDLER, data: {:?}", data);
-        let url = router.route_redirect(data).await;
+        let url = router.route_redirect(path, data, auth_token, client_id).await;
         // println!("File HANDLER, url: {}", url);
         match url.parse::<Uri>() {
             Ok(uri) => Ok(warp::redirect::found(uri).into_response()),

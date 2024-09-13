@@ -255,13 +255,22 @@ impl CnctdServer {
 
         let redirect_route = warp::path("redirect")
             .and(warp::get())
-            .and(warp::query::<RedirectQuery>())
-            .and_then(move |data: RedirectQuery| {
+            .and(warp::path::full())
+            .and(warp::header::optional("Authorization"))
+            .and(warp::header::optional("Client-Id"))
+            .and(warp::query::<Value>())
+            .and_then(move |path: FullPath, auth_header: Option<String>, client_id: Option<String>, data: Value| {
                 let router_clone = cloned_router_for_redirect.clone();
                 async move {
-                    Handler::get_redirect(data, router_clone).await
+                    Handler::get_redirect(path.as_str().to_string(), data, auth_header, client_id, router_clone).await
                 }
             });
+            // .and_then(move |data: RedirectQuery| {
+            //     let router_clone = cloned_router_for_redirect.clone();
+            //     async move {
+            //         Handler::get_redirect(data, router_clone).await
+            //     }
+            // });
 
         let routes = redirect_route
             .or(post_route)
