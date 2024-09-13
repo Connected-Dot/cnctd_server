@@ -199,6 +199,15 @@ impl CnctdSocket {
         Ok(())
     }
 
+    pub async fn message_multiple_clients<M>(client_ids: Vec<String>, msg: &M) -> anyhow::Result<()>
+    where M: Serialize + Debug + DeserializeOwned + Clone {
+        for client_id in client_ids {
+            let _ = Self::message_client(&client_id, msg);
+        }
+
+        Ok(())
+    }
+
     pub async fn message_user<M>(user_id: &str, msg: &M, exclude_client_id: Option<String>) -> anyhow::Result<()>
     where M: Serialize + Debug + DeserializeOwned + Clone {
         let client_ids = Self::get_client_ids(user_id).await.ok_or_else(|| anyhow!("No client found for user_id: {}", user_id))?;
@@ -215,6 +224,20 @@ impl CnctdSocket {
         Ok(())
     }
     
+    pub async fn message_subscribers(channel: &str, msg: &Message, exclude_client_id: Option<String>) -> anyhow::Result<()> {
+        let client_ids = Self::get_subscriber_client_ids(channel).await;
+        
+        client_ids.iter().for_each(|client_id| {
+            if let Some(exclude_id) = &exclude_client_id {
+                if client_id == exclude_id {
+                    return;
+                }
+            }
+            let _ = Self::message_client(client_id, msg);
+        });
+
+        Ok(())
+    }
 
     pub async fn get_clients() -> anyhow::Result<Vec<ClientInfo>> {
         let clients = CLIENTS.try_get().ok_or_else(|| anyhow!("Clients not initialized"))?.read().await;
@@ -239,6 +262,19 @@ impl CnctdSocket {
             connected: client.sender.is_some(),
             server_id: server_id.clone(),
         }
+    }
+
+    pub async fn get_subscriber_client_ids(channel: &str) -> Vec<String> {
+        let clients = CLIENTS.try_get().expect("Clients not initialized").read().await;
+        let client_ids = clients.iter().filter_map(|(client_id, client)| {
+            if client.subscriptions.contains(&channel.to_string()) {
+                Some(client_id.clone())
+            } else {
+                None
+            }
+        }).collect::<Vec<String>>();
+
+        client_ids
     }
     
     async fn handle_connection<M, Resp, R>(
