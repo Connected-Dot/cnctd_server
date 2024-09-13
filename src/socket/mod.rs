@@ -405,5 +405,35 @@ impl CnctdSocket {
     
         Ok(())
     }
+
+    pub async fn add_multiple_subscriptions(client_id: &str, channels: Vec<String>) -> anyhow::Result<()> {
+        let clients = CLIENTS.try_get().ok_or_else(|| anyhow!("Clients not initialized"))?;
+        let mut clients_lock = clients.write().await;
+    
+        if let Some(client) = clients_lock.get_mut(client_id) {
+            for channel in channels {
+                if !client.subscriptions.contains(&channel) {
+                    client.subscriptions.push(channel);
+                }
+            }
+        }
+    
+        Ok(())
+    }
+
+    pub async fn remove_multiple_subscriptions(client_id: &str, channels: Vec<String>) -> anyhow::Result<()> {
+        let clients = CLIENTS.try_get().ok_or_else(|| anyhow!("Clients not initialized"))?;
+        let mut clients_lock = clients.write().await;
+    
+        if let Some(client) = clients_lock.get_mut(client_id) {
+            for channel in channels {
+                if let Some(index) = client.subscriptions.iter().position(|sub| sub == &channel) {
+                    client.subscriptions.remove(index);
+                }
+            }
+        }
+    
+        Ok(())
+    }
 }
 
