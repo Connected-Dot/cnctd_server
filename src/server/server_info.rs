@@ -98,6 +98,13 @@ impl ServerInfo {
     pub async fn get_server_id() -> String {
         SERVER_INFO.get().read().await.id.clone()
     }
+    
+    pub async fn get_server_and_session_id() -> (String, String) {
+        let server_info = SERVER_INFO.get().clone();
+        let server_info = server_info.read().await;
+        
+        (server_info.id.clone(), server_info.session_id.clone())
+    }
 
     pub async fn set_redis_active(active: bool) {
         let server_info = SERVER_INFO.get().clone();

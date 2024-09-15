@@ -18,6 +18,7 @@ pub struct ClientInfo {
     pub data: Value,
     pub connected: bool,
     pub server_id: String,
+    pub server_session_id: String,
     pub created_at: DateTime<FixedOffset>,
     pub updated_at: DateTime<FixedOffset>,
 }
@@ -94,7 +95,7 @@ impl CnctdClient {
 
 
     pub async fn to_client_info(&self, client_id: &str) -> ClientInfo {
-        let server_id = ServerInfo::get_server_id().await;
+        let (server_id, server_session_id) = ServerInfo::get_server_and_session_id().await;
         ClientInfo {
             client_id: client_id.to_string(),
             user_id: self.user_id.clone(),
@@ -103,6 +104,7 @@ impl CnctdClient {
             data: self.data.clone(),
             connected: self.sender.is_some(),
             server_id,
+            server_session_id,
             created_at: self.created_at,
             updated_at: self.updated_at,
         }
@@ -323,7 +325,7 @@ impl CnctdClient {
 
     pub async fn get_client_infos() -> anyhow::Result<Vec<ClientInfo>> {
         let clients = CLIENTS.try_get().ok_or_else(|| anyhow!("Clients not initialized"))?.read().await;
-        let server_id = ServerInfo::get_server_id().await;
+        let (server_id, server_session_id) = ServerInfo::get_server_and_session_id().await;
         let clients = clients.iter().map(|(client_id, client)| ClientInfo {
             client_id: client_id.into(), 
             user_id: client.user_id.to_string(),
@@ -332,6 +334,7 @@ impl CnctdClient {
             data: client.data.clone(),
             connected: client.sender.is_some(),
             server_id: server_id.clone(),
+            server_session_id: server_session_id.clone(),
             created_at: client.created_at,
             updated_at: client.updated_at,
         }).collect();
