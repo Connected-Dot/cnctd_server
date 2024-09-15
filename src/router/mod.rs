@@ -9,7 +9,6 @@ use std::fmt::Debug;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::server::handlers::RedirectQuery;
 
 use self::error::ErrorResponse;
 use self::response::SuccessResponse;
@@ -37,6 +36,6 @@ where
     Req: Serialize + for<'de> Deserialize<'de> + Clone + Debug,
     Resp: Serialize + for<'de> Deserialize<'de> + Clone + Debug,
 {
-    fn route(&self, msg: Req) -> Pin<Box<dyn Future<Output = Resp> + Send>>;
+    fn route(&self, msg: Req, client_id: String) -> Pin<Box<dyn Future<Output = Option<Resp>> + Send>>;
 }
 

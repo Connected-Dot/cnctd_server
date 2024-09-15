@@ -1,4 +1,7 @@
+pub mod client;
+
 use anyhow::anyhow;
+use client::{CnctdClient, QueryParams};
 use cnctd_redis::CnctdRedis;
 use futures_util::{SinkExt, StreamExt};
 use local_ip_address::local_ip;
@@ -15,7 +18,6 @@ use std::{sync::Arc, fmt::Debug};
 
 use crate::router::message::Message;
 use crate::router::SocketRouterFunction;
-use crate::server::handlers::{ClientQuery, Handler};
 use crate::server::server_info::ServerInfo;
 
 #[derive(Debug)]
@@ -40,40 +42,9 @@ impl<R> SocketConfig<R> {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ClientInfo {
-    pub client_id: String,
-    pub user_id: String,
-    pub subscriptions: Vec<String>,
-    pub connected: bool,
-    pub server_id: String,
-}
 
-#[derive(Debug, Deserialize)]
-struct QueryParams {
-    pub client_id: Option<String>,
-}
 
-type Sender = mpsc::UnboundedSender<std::result::Result<warp::ws::Message, warp::Error>>;
-
-#[derive(Debug, Clone)]
-pub struct Client {
-    pub user_id: String,
-    pub subscriptions: Vec<String>,
-    pub sender: Option<Sender>,
-}
-
-impl Client {
-    pub fn new(user_id: String, subscriptions: Vec<String>) -> Self {
-        Self {
-            user_id,
-            subscriptions,
-            sender: None,
-        }
-    }
-}
-
-pub static CLIENTS: InitCell<Arc<RwLock<HashMap<String, Client>>>> = InitCell::new();
+pub static CLIENTS: InitCell<Arc<RwLock<HashMap<String, CnctdClient>>>> = InitCell::new();
 
 pub struct CnctdSocket;
 
@@ -107,17 +78,6 @@ impl CnctdSocket {
             None => redis = false
         };
 
-        let registration_route = warp::path("register")
-            .and(warp::get())
-            .and(warp::header::optional("Authorization"))
-            .and(warp::query::<ClientQuery>())
-            .and_then(move |auth_token: Option<String>, client_query: ClientQuery| {
-                let secret_clone = config.secret.clone();
-                async move {
-                    Handler::register_socket_client(client_query, secret_clone, auth_token).await
-                }
-            });
-
         let websocket_route = warp::path("ws")
             .and(warp::ws())
             .and(warp::any().map(move || config.router.clone()))
@@ -141,7 +101,7 @@ impl CnctdSocket {
                 }
             });
               
-        let routes = registration_route.or(websocket_route);
+        let routes = websocket_route;
 
         routes.boxed()
 
@@ -173,110 +133,14 @@ impl CnctdSocket {
         
         for (client_id, client) in clients.iter() {
             if client.subscriptions.contains(&msg.channel) {
-                Self::message_client(&client_id, msg).await?;
+                CnctdClient::message_client(&client_id, msg).await?;
             }
         }
     
         Ok(())
     }
 
-    pub async fn message_client<M>(client_id: &str, msg: &M) -> anyhow::Result<()>
-    where M: Serialize + Debug + DeserializeOwned + Clone {
-        let client = Self::get_client(client_id).await?;
-        
-        // Serialize the message only if a sender exists
-        if let Some(sender) = &client.sender {
-            let serialized_msg = serde_json::to_string(msg).map_err(|e| anyhow!("Serialization error: {}", e))?;
-            
-            // Attempt to send the serialized message
-            if let Err(e) = sender.send(Ok(warp::ws::Message::text(serialized_msg))) {
-                eprintln!("Send error: {}", e);
-            }
-        } else {
-            return Err(anyhow!("Client with id {} has no active sender", client_id));
-        }
-        
-        Ok(())
-    }
-
-    pub async fn message_multiple_clients<M>(client_ids: Vec<String>, msg: &M) -> anyhow::Result<()>
-    where M: Serialize + Debug + DeserializeOwned + Clone {
-        for client_id in client_ids {
-            let _ = Self::message_client(&client_id, msg);
-        }
-
-        Ok(())
-    }
-
-    pub async fn message_user<M>(user_id: &str, msg: &M, exclude_client_id: Option<String>) -> anyhow::Result<()>
-    where M: Serialize + Debug + DeserializeOwned + Clone {
-        let client_ids = Self::get_client_ids(user_id).await.ok_or_else(|| anyhow!("No client found for user_id: {}", user_id))?;
-        
-        client_ids.iter().for_each(|client_id| {
-            if let Some(exclude_id) = &exclude_client_id {
-                if client_id == exclude_id {
-                    return;
-                }
-            }
-            let _ = Self::message_client(client_id, msg);
-        });
-
-        Ok(())
-    }
-    
-    pub async fn message_subscribers<M>(channel: &str, msg: &M, exclude_client_id: Option<String>) -> anyhow::Result<()>
-    where M: Serialize + Debug + DeserializeOwned + Clone {
-        let client_ids = Self::get_subscriber_client_ids(channel).await;
-        
-        client_ids.iter().for_each(|client_id| {
-            if let Some(exclude_id) = &exclude_client_id {
-                if client_id == exclude_id {
-                    return;
-                }
-            }
-            let _ = Self::message_client(client_id, msg);
-        });
-
-        Ok(())
-    }
-
-    pub async fn get_clients() -> anyhow::Result<Vec<ClientInfo>> {
-        let clients = CLIENTS.try_get().ok_or_else(|| anyhow!("Clients not initialized"))?.read().await;
-        let server_id = ServerInfo::get_server_id().await;
-        let clients = clients.iter().map(|(client_id, client)| ClientInfo {
-            client_id: client_id.into(), 
-            user_id: client.user_id.to_string(),
-            subscriptions: client.subscriptions.clone(),
-            connected: client.sender.is_some(),
-            server_id: server_id.clone(),
-        }).collect();
-
-        Ok(clients)
-    }
-
-    pub async fn get_client_info(client_id: &str, client: Client) -> ClientInfo {
-        let server_id = ServerInfo::get_server_id().await;
-        ClientInfo {
-            client_id: client_id.into(), 
-            user_id: client.user_id.to_string(),
-            subscriptions: client.subscriptions.clone(),
-            connected: client.sender.is_some(),
-            server_id: server_id.clone(),
-        }
-    }
-
-    pub async fn get_subscriber_client_ids(channel: &str) -> Vec<String> {
-        let clients = CLIENTS.try_get().expect("Clients not initialized").read().await;
-        let client_ids = clients.iter().filter_map(|(client_id, client)| {
-            if client.subscriptions.contains(&channel.to_string()) {
-                Some(client_id.clone())
-            } else {
-                None
-            }
-        }).collect::<Vec<String>>();
-
-        client_ids
-    }
+   
     
     async fn handle_connection<M, Resp, R>(
         websocket: WebSocket,
@@ -295,7 +159,7 @@ impl CnctdSocket {
             let clients = CLIENTS.get();
             let mut clients_lock = clients.write().await;
     
-            if let Some(client) = clients_lock.get_mut(&client_id) {
+            if let Some(client) = clients_lock.get_mut(&client_id.clone()) {
                 // Update the sender for the client
                 client.sender = Some(resp_tx.clone());
 
@@ -313,17 +177,24 @@ impl CnctdSocket {
             }
         }
         
+        let client_id_clone = client_id.clone();
         // Incoming message handling
         let process_incoming = async move {
             while let Some(result) = ws_rx.next().await {
                 match result {
                     Ok(msg) => {
                         if let Ok(message_str) = msg.to_str() {
-                            println!("Message string: {}", message_str);
+                            // println!("Message string: {}", message_str);
                             if let Ok(message) = serde_json::from_str::<M>(message_str) {
-                                let response = router.route(message).await;
-                                if let Ok(response_str) = serde_json::to_string(&response) {
-                                    let _ = resp_tx.send(Ok(WebSocketMessage::text(response_str)));
+                                match router.route(message, client_id_clone.clone()).await {
+                                    Some(response) => {
+                                        if let Ok(response_str) = serde_json::to_string(&response) {
+                                            let _ = resp_tx.send(Ok(WebSocketMessage::text(response_str)));
+                                        }
+                                    },
+                                    None => {
+
+                                    }
                                 }
                             }
                         }
@@ -383,29 +254,10 @@ impl CnctdSocket {
         Ok(())
     }
 
-    pub async fn get_client(client_id: &str) -> anyhow::Result<Client> {
-        let clients = CLIENTS.try_get().ok_or_else(|| anyhow!("Clients not initialized"))?.read().await;
-        let client = clients.get(client_id).ok_or_else(|| anyhow!("No matching client"))?;
 
-        Ok(client.to_owned())
-    }
-    pub async fn get_client_ids(user_id: &str) -> Option<Vec<String>> {
-        // Attempt to get the read lock on the clients
-        let clients = CLIENTS.try_get()?.read().await;
-        
-        let client_ids = clients.iter().filter_map(|(client_id, client)| {
-            if client.user_id.as_str() == user_id {
-                Some(client_id.clone())
-            } else {
-                None
-            }
-        }).collect::<Vec<String>>();
 
-        Some(client_ids)
-    }
-
-    pub async fn push_client_to_redis(client_id: &str, client: &Client) -> anyhow::Result<()> {
-        let client_info = Self::get_client_info(client_id, client.clone()).await;
+    pub async fn push_client_to_redis(client_id: &str, client: &CnctdClient) -> anyhow::Result<()> {
+        let client_info = client.to_client_info(client_id).await;
         CnctdRedis::hset("clients", &client_id, client_info)?;
 
         Ok(())
@@ -417,60 +269,5 @@ impl CnctdSocket {
         Ok(())
     }
 
-    pub async fn add_subscription(client_id: &str, channel: &str) -> anyhow::Result<()> {
-        let clients = CLIENTS.try_get().ok_or_else(|| anyhow!("Clients not initialized"))?;
-        let mut clients_lock = clients.write().await;
-    
-        if let Some(client) = clients_lock.get_mut(client_id) {
-            if !client.subscriptions.contains(&channel.to_string()) {
-                client.subscriptions.push(channel.to_string());
-            }
-        }
-    
-        Ok(())
-    }
-
-    pub async fn remove_subscription(client_id: &str, channel: &str) -> anyhow::Result<()> {
-        let clients = CLIENTS.try_get().ok_or_else(|| anyhow!("Clients not initialized"))?;
-        let mut clients_lock = clients.write().await;
-    
-        if let Some(client) = clients_lock.get_mut(client_id) {
-            if let Some(index) = client.subscriptions.iter().position(|sub| sub == channel) {
-                client.subscriptions.remove(index);
-            }
-        }
-    
-        Ok(())
-    }
-
-    pub async fn add_multiple_subscriptions(client_id: &str, channels: Vec<String>) -> anyhow::Result<()> {
-        let clients = CLIENTS.try_get().ok_or_else(|| anyhow!("Clients not initialized"))?;
-        let mut clients_lock = clients.write().await;
-    
-        if let Some(client) = clients_lock.get_mut(client_id) {
-            for channel in channels {
-                if !client.subscriptions.contains(&channel) {
-                    client.subscriptions.push(channel);
-                }
-            }
-        }
-    
-        Ok(())
-    }
-
-    pub async fn remove_multiple_subscriptions(client_id: &str, channels: Vec<String>) -> anyhow::Result<()> {
-        let clients = CLIENTS.try_get().ok_or_else(|| anyhow!("Clients not initialized"))?;
-        let mut clients_lock = clients.write().await;
-    
-        if let Some(client) = clients_lock.get_mut(client_id) {
-            for channel in channels {
-                if let Some(index) = client.subscriptions.iter().position(|sub| sub == &channel) {
-                    client.subscriptions.remove(index);
-                }
-            }
-        }
-    
-        Ok(())
-    }
 }
 

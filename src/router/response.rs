@@ -1,8 +1,6 @@
-use std::fmt;
-
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use warp::{http::StatusCode, reply::Json};
+use warp::http::StatusCode;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
 pub enum SuccessCode {

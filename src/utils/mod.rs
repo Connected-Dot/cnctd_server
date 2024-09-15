@@ -14,7 +14,7 @@ pub fn cors(origins: Option<Vec<String>>) -> Builder {
     cors
 }
 
-fn serve_index_with_range(client_files_dir: String) -> warp::filters::BoxedFilter<(impl warp::Reply,)> {
+pub fn serve_index_with_range(client_files_dir: String) -> warp::filters::BoxedFilter<(impl warp::Reply,)> {
     warp::path::end()
         .and(warp::header::optional::<String>("range"))
         .map(move |range_header: Option<String>| {
@@ -84,12 +84,12 @@ pub fn spa(dir: Option<String>) -> warp::filters::BoxedFilter<(Box<dyn warp::Rep
 
 
 
-fn serve_files(client_files_dir: String) -> warp::filters::BoxedFilter<(impl warp::Reply,)> {
+pub fn serve_files(client_files_dir: String) -> warp::filters::BoxedFilter<(impl warp::Reply,)> {
     warp::fs::dir(client_files_dir)
         .boxed()
 }
 
-fn parse_range_header(range: String) -> Option<(usize, usize)> {
+pub fn parse_range_header(range: String) -> Option<(usize, usize)> {
     let parts: Vec<&str> = range.trim().split("=").collect();
     if parts.len() != 2 || parts[0] != "bytes" {
         return None;

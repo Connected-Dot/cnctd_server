@@ -1,19 +1,19 @@
 pub mod server_info;
 pub mod handlers;
 
-use std::{convert::Infallible, fmt::Debug, sync::Arc, time::Duration};
+use std::{fmt::Debug, sync::Arc, time::Duration};
 
 // use async_graphql_warp::{graphql, GraphQLResponse};
 use local_ip_address::local_ip;
 use serde::{de::DeserializeOwned, Serialize};
 use serde_json::Value;
-use warp::{filters::path::FullPath, Filter, http::Response as HttpResponse};
+use warp::{filters::path::FullPath, Filter};
 
 use crate::{
     router::{RestRouterFunction, SocketRouterFunction}, server::server_info::{ServerInfo, SERVER_INFO}, socket::{CnctdSocket, SocketConfig}, utils::{cors, spa}
 };
 
-use self::handlers::{RedirectQuery, Handler, RedirectHandler};
+use self::handlers::{Handler, RedirectHandler};
 // use async_graphql::{self, http::GraphiQLSource, EmptySubscription, Schema};
 
 
