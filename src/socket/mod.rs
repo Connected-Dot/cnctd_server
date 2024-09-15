@@ -1,12 +1,12 @@
 pub mod client;
 
 use anyhow::anyhow;
-use client::{CnctdClient, QueryParams};
+use client::{ClientInfo, CnctdClient, QueryParams};
 use cnctd_redis::CnctdRedis;
 use futures_util::{SinkExt, StreamExt};
 use local_ip_address::local_ip;
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use state::InitCell;
 use warp::filters::ws::Ws;
 use warp::reject::Reject;
@@ -25,19 +25,21 @@ struct NoClientId;
 
 impl Reject for NoClientId {}
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Clone)]
 pub struct SocketConfig<R> {
     pub router: R,
     pub secret: Option<Vec<u8>>,
     pub redis_url: Option<String>,
+    pub on_disconnect: Option<Arc<dyn Fn(ClientInfo) + Send + Sync>>,
 }
 
 impl<R> SocketConfig<R> {
-    pub fn new(router: R, secret: Option<Vec<u8>>, redis_url: Option<String>) -> Self {
+    pub fn new(router: R, secret: Option<Vec<u8>>, redis_url: Option<String>, on_disconnect: Option<Arc<dyn Fn(ClientInfo) + Send + Sync>>,) -> Self {
         Self {
             router,
             secret,
-            redis_url
+            redis_url,
+            on_disconnect,
         }
     }
 }
@@ -83,7 +85,8 @@ impl CnctdSocket {
             .and(warp::any().map(move || config.router.clone()))
             .and(warp::query::<QueryParams>())
             .and_then(move |ws: Ws, router: R, params: QueryParams| {
-
+                let on_disconnect = config.on_disconnect.clone(); // Clone the Arc here
+        
                 async move {
                     // Check for the presence of client_id
                     let client_id = match params.client_id {
@@ -92,21 +95,22 @@ impl CnctdSocket {
                             return Err(warp::reject::custom(NoClientId))
                         },
                     };
-                    
-
+        
                     // Proceed with connection setup
                     Ok(ws.on_upgrade(move |socket| {
-                        Self::handle_connection(socket, router, client_id, redis)
+                        // Pass the cloned on_disconnect callback here
+                        Self::handle_connection(socket, router, client_id, redis, on_disconnect.clone())
                     }))
                 }
             });
+    
               
         let routes = websocket_route;
 
         routes.boxed()
 
     }
-    pub async fn start<M, Resp, R>(port: &str, router: R, secret: Option<Vec<u8>>, redis_url: Option<String>) -> anyhow::Result<()>
+    pub async fn start<M, Resp, R>(port: &str, router: R, secret: Option<Vec<u8>>, redis_url: Option<String>, on_disconnect: Option<Arc<dyn Fn(ClientInfo) + Send + Sync>>,) -> anyhow::Result<()>
     where
         M: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static,
         Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static, 
@@ -119,7 +123,7 @@ impl CnctdSocket {
         let ip_address: [u8; 4] = [0, 0, 0, 0];
         let parsed_port = port.parse::<u16>()?;
         let socket_addr = std::net::SocketAddr::from((ip_address, parsed_port));
-        let config = SocketConfig::new(router, secret, redis_url);
+        let config = SocketConfig::new(router, secret, redis_url, on_disconnect);
         let routes = Self::build_routes(config);
 
         warp::serve(routes).run(socket_addr).await;
@@ -147,6 +151,7 @@ impl CnctdSocket {
         router: R,
         client_id: String,
         redis: bool,
+        on_disconnect: Option<Arc<dyn Fn(ClientInfo) + Send + Sync>>,
     ) where 
         M: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static,
         Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static, 
@@ -220,6 +225,11 @@ impl CnctdSocket {
             _ = process_incoming => {},
             _ = send_responses => {},
         };
+
+        if let Some(callback) = on_disconnect {
+            let client_info = CnctdClient::get_client_info(&client_id).await.unwrap();
+            callback(client_info);
+        }
     
         // Clean up after disconnection
         match Self::remove_client(&client_id).await {
@@ -233,6 +243,8 @@ impl CnctdSocket {
                 Err(e) => eprintln!("Error removing client from Redis: {:?}", e),
             }
         }
+
+
         
     }
 
