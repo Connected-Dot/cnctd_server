@@ -196,13 +196,13 @@ impl CnctdClient {
                         return Ok(false);
                     }
                 } else {
-                    Err(anyhow!("Key not found"))
+                    return Ok(false);
                 }
             } else {
-                Err(anyhow!("Data is not a JSON object"))
+                return Ok(false);
             }
         } else {
-            Err(anyhow!("Client not found"))
+            return Ok(false);
         }
     }
 
