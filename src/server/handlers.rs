@@ -28,11 +28,11 @@ pub struct RedirectQuery {
 pub struct Handler;
 
 impl Handler {
-    pub async fn post<R>(path: String, data: Value, auth_token: Option<String>, client_id: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
+    pub async fn post<R>(path: String, data: Value, auth_token: Option<String>, client_id: Option<String>, ip_address: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
     where
         R: RestRouterFunction,
     {
-        match router.route(HttpMethod::POST, path, data, auth_token, client_id).await {
+        match router.route(HttpMethod::POST, path, data, auth_token, client_id, ip_address).await {
             Ok(response) => {
                 let status = &response.status.to_warp_status_code();
                 let json = warp::reply::json(&response);
@@ -48,12 +48,11 @@ impl Handler {
         }
     }
     
-    pub async fn get<R>(path: String, data: Value, auth_token: Option<String>, client_id: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
+    pub async fn get<R>(path: String, data: Value, auth_token: Option<String>, client_id: Option<String>, ip_address: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
     where
         R: RestRouterFunction,
-        
     {
-        match router.route(HttpMethod::GET, path, data, auth_token, client_id).await {
+        match router.route(HttpMethod::GET, path, data, auth_token, client_id, ip_address).await {
             Ok(response) => {
                 let status = &response.status.to_warp_status_code();
                 let json = warp::reply::json(&response);
@@ -69,12 +68,11 @@ impl Handler {
         }
     }
     
-    pub async fn put<R>(path: String, data: Value, auth_token: Option<String>, client_id: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
+    pub async fn put<R>(path: String, data: Value, auth_token: Option<String>, client_id: Option<String>, ip_address: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
     where
         R: RestRouterFunction,
-        
     {
-        match router.route(HttpMethod::PUT, path, data, auth_token, client_id).await {
+        match router.route(HttpMethod::PUT, path, data, auth_token, client_id, ip_address).await {
             Ok(response) => {
                 let status = &response.status.to_warp_status_code();
                 let json = warp::reply::json(&response);
@@ -90,13 +88,11 @@ impl Handler {
         }
     }
 
-    pub async fn delete<R>(path: String, data: Value, auth_token: Option<String>, client_id: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
+    pub async fn delete<R>(path: String, data: Value, auth_token: Option<String>, client_id: Option<String>, ip_address: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
     where
-
         R: RestRouterFunction,
-        
     {
-        match router.route(HttpMethod::DELETE, path, data, auth_token, client_id).await {
+        match router.route(HttpMethod::DELETE, path, data, auth_token, client_id, ip_address).await {
             Ok(response) => {
                 let status = &response.status.to_warp_status_code();
                 let json = warp::reply::json(&response);

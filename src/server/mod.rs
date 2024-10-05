@@ -206,11 +206,13 @@ impl CnctdServer {
             .and(warp::path::full())
             .and(warp::header::optional("Authorization"))
             .and(warp::header::optional("Client-Id"))
+            .and(warp::addr::remote()) // Get the client IP address
             .and(warp::body::json())
-            .and_then(move |path: FullPath, auth_header: Option<String>, client_id: Option<String>, data: Value| {
+            .and_then(move |path: FullPath, auth_header: Option<String>, client_id: Option<String>, remote_addr: Option<std::net::SocketAddr>, data: Value| {
+                let ip_address = remote_addr.map(|addr| addr.ip().to_string());
                 let router_clone = cloned_router_for_post.clone();
                 async move {
-                    Handler::post(path.as_str().to_string(), data, auth_header, client_id, router_clone).await
+                    Handler::post(path.as_str().to_string(), data, auth_header, client_id, ip_address, router_clone).await
                 }
             });
 
@@ -219,11 +221,13 @@ impl CnctdServer {
             .and(warp::path::full())
             .and(warp::header::optional("Authorization"))
             .and(warp::header::optional("Client-Id"))
+            .and(warp::addr::remote()) // Get the client IP address
             .and(warp::query::<Value>())
-            .and_then(move |path: FullPath, auth_header: Option<String>, client_id: Option<String>, data: Value| {
+            .and_then(move |path: FullPath, auth_header: Option<String>, client_id: Option<String>, remote_addr: Option<std::net::SocketAddr>, data: Value| {
+                let ip_address = remote_addr.map(|addr| addr.ip().to_string());
                 let router_clone = cloned_router_for_get.clone();
                 async move {
-                    Handler::get(path.as_str().to_string(), data, auth_header, client_id, router_clone).await
+                    Handler::get(path.as_str().to_string(), data, auth_header, client_id, ip_address, router_clone).await
                 }
             });
 
@@ -232,11 +236,13 @@ impl CnctdServer {
             .and(warp::path::full())
             .and(warp::header::optional("Authorization"))
             .and(warp::header::optional("Client-Id"))
+            .and(warp::addr::remote()) // Get the client IP address
             .and(warp::body::json())
-            .and_then(move |path: FullPath, auth_header: Option<String>, client_id: Option<String>, data: Value| {
+            .and_then(move |path: FullPath, auth_header: Option<String>, client_id: Option<String>, remote_addr: Option<std::net::SocketAddr>, data: Value| {
+                let ip_address = remote_addr.map(|addr| addr.ip().to_string());
                 let router_clone = cloned_router_for_put.clone();
                 async move {
-                    Handler::put(path.as_str().to_string(), data, auth_header, client_id, router_clone).await
+                    Handler::put(path.as_str().to_string(), data, auth_header, client_id, ip_address, router_clone).await
                 }
             });
 
@@ -245,11 +251,13 @@ impl CnctdServer {
             .and(warp::path::full())
             .and(warp::header::optional("Authorization"))
             .and(warp::header::optional("Client-Id"))
+            .and(warp::addr::remote()) // Get the client IP address
             .and(warp::query::<Value>())
-            .and_then(move |path: FullPath, auth_header: Option<String>, client_id: Option<String>, data: Value| {
+            .and_then(move |path: FullPath, auth_header: Option<String>, client_id: Option<String>, remote_addr: Option<std::net::SocketAddr>, data: Value| {
+                let ip_address = remote_addr.map(|addr| addr.ip().to_string());
                 let router_clone = cloned_router_for_delete.clone();
                 async move {
-                    Handler::delete(path.as_str().to_string(), data, auth_header, client_id, router_clone).await
+                    Handler::delete(path.as_str().to_string(), data, auth_header, client_id, ip_address, router_clone).await
                 }
             });
 
@@ -265,12 +273,6 @@ impl CnctdServer {
                     Handler::get_redirect(path.as_str().to_string(), data, auth_header, client_id, router_clone).await
                 }
             });
-            // .and_then(move |data: RedirectQuery| {
-            //     let router_clone = cloned_router_for_redirect.clone();
-            //     async move {
-            //         Handler::get_redirect(data, router_clone).await
-            //     }
-            // });
 
         let routes = redirect_route
             .or(post_route)

@@ -13,6 +13,7 @@ use crate::{server::server_info::ServerInfo, socket::{CnctdSocket, CLIENTS}};
 pub struct ClientInfo {
     pub client_id: String,
     pub user_id: String,
+    pub ip_address: Option<String>,
     pub authenticated: bool,
     pub subscriptions: Vec<String>,
     pub data: Value,
@@ -34,6 +35,7 @@ pub type Result<T> = std::result::Result<T, Rejection>;
 #[derive(Debug, Clone)]
 pub struct CnctdClient {
     pub user_id: String,
+    pub ip_address: Option<String>,
     pub authenticated: bool,
     pub subscriptions: Vec<String>,
     pub sender: Option<Sender>,
@@ -43,9 +45,10 @@ pub struct CnctdClient {
 }
 
 impl CnctdClient {
-    pub fn new(subscriptions: Vec<String>) -> Self {
+    pub fn new(subscriptions: Vec<String>, ip_address: Option<String>) -> Self {
         Self {
             user_id: "".to_string(),
+            ip_address,
             authenticated: false,
             subscriptions,
             sender: None,
@@ -55,10 +58,10 @@ impl CnctdClient {
         }
     }
 
-    pub async fn register_client(subscriptions: Vec<String>) -> anyhow::Result<String> {
+    pub async fn register_client(subscriptions: Vec<String>, ip_address: Option<String>) -> anyhow::Result<String> {
         let client_id = uuid::Uuid::new_v4().to_string();
         
-        let client = Self::new(subscriptions);
+        let client = Self::new(subscriptions, ip_address);
         let clients_lock = match CLIENTS.try_get() {
             Some(clients) => clients,
             None => {
@@ -99,6 +102,7 @@ impl CnctdClient {
         ClientInfo {
             client_id: client_id.to_string(),
             user_id: self.user_id.clone(),
+            ip_address: self.ip_address.clone(),
             authenticated: self.authenticated,
             subscriptions: self.subscriptions.clone(),
             data: self.data.clone(),
@@ -329,6 +333,7 @@ impl CnctdClient {
         let clients = clients.iter().map(|(client_id, client)| ClientInfo {
             client_id: client_id.into(), 
             user_id: client.user_id.to_string(),
+            ip_address: client.ip_address.clone(),
             authenticated: client.authenticated,
             subscriptions: client.subscriptions.clone(),
             data: client.data.clone(),
