@@ -22,6 +22,7 @@ use self::handlers::{Handler, RedirectHandler};
 pub struct ServerConfig<R> {
     pub id: String,
     pub port: String,
+    pub path: Option<String>,
     pub client_dir: Option<String>,
     pub router: R,
     pub heartbeat: Option<Duration>,
@@ -29,9 +30,10 @@ pub struct ServerConfig<R> {
 }
 
 impl<R> ServerConfig<R> {
-    pub fn new(id: &str, port: &str, client_dir: Option<String>, router: R, heartbeat: Option<u64>, allowed_origins: Option<Vec<String>>) -> Self {
+    pub fn new(id: &str, port: &str, client_dir: Option<String>, router: R, heartbeat: Option<u64>, allowed_origins: Option<Vec<String>>, path: Option<String>) -> Self {
         Self {
             id: id.into(),
+            path,
             port: port.into(),
             client_dir,
             router,
@@ -77,7 +79,7 @@ impl CnctdServer {
 
                 SERVER_INFO.set(server_info.clone());                
 
-                let rest_routes = Self::build_rest_routes::<R>(&server_router);
+                let rest_routes = Self::build_rest_routes::<R>(&server_router, server_config.path.clone());
                 let socket_routes = CnctdSocket::build_routes(config.clone());
                 // let graphql_routes = CnctdGraphQL::build_routes(graphql_config);
 
@@ -112,7 +114,7 @@ impl CnctdServer {
                 warp::serve(routes).run(socket).await;
             }
             None => {
-                let rest_routes = Self::build_rest_routes::<R>(&server_router);
+                let rest_routes = Self::build_rest_routes::<R>(&server_router, server_config.path.clone());
                 let routes = rest_routes
                     .or(web_app)
                     .with(cors(server_config.allowed_origins))
@@ -191,7 +193,7 @@ impl CnctdServer {
         }
     }
 
-    fn build_rest_routes<R>(router: &Arc<R>) -> warp::filters::BoxedFilter<(impl warp::Reply,)>
+    fn build_rest_routes<R>(router: &Arc<R>, path: Option<String>) -> warp::filters::BoxedFilter<(impl warp::Reply,)>
     where
         R: RestRouterFunction + 'static,
     {
@@ -201,60 +203,67 @@ impl CnctdServer {
         let cloned_router_for_delete = Arc::clone(&router);
         let cloned_router_for_redirect = Arc::clone(&router);
 
-        let post_route = warp::path("api")
+        let path_string = path.unwrap_or_else(|| "api".to_string());
+        let path_filter = warp::path(path_string.clone()).boxed();
+
+        let post_route = path_filter.clone()
             .and(warp::post())
             .and(warp::path::full())
             .and(warp::header::optional("Authorization"))
             .and(warp::header::optional("Client-Id"))
-            .and(warp::addr::remote()) // Get the client IP address
+            .and(warp::header::optional::<String>("x-forwarded-for"))  // Check for the X-Forwarded-For header
+            .and(warp::addr::remote())  // Fallback to the remote address if no X-Forwarded-For header
             .and(warp::body::json())
-            .and_then(move |path: FullPath, auth_header: Option<String>, client_id: Option<String>, remote_addr: Option<std::net::SocketAddr>, data: Value| {
-                let ip_address = remote_addr.map(|addr| addr.ip().to_string());
+            .and_then(move |path: FullPath, auth_header: Option<String>, client_id: Option<String>, x_forwarded_for: Option<String>, remote_addr: Option<std::net::SocketAddr>, data: Value| {
+                let ip_address = x_forwarded_for.or_else(|| remote_addr.map(|addr| addr.ip().to_string()));  // Use X-Forwarded-For or fallback to remote addr
                 let router_clone = cloned_router_for_post.clone();
                 async move {
                     Handler::post(path.as_str().to_string(), data, auth_header, client_id, ip_address, router_clone).await
                 }
             });
 
-        let get_route = warp::path("api")
+        let get_route = path_filter.clone()
             .and(warp::get())
             .and(warp::path::full())
             .and(warp::header::optional("Authorization"))
             .and(warp::header::optional("Client-Id"))
-            .and(warp::addr::remote()) // Get the client IP address
+            .and(warp::header::optional::<String>("x-forwarded-for"))  // Check for the X-Forwarded-For header
+            .and(warp::addr::remote())  // Fallback to the remote address if no X-Forwarded-For header
             .and(warp::query::<Value>())
-            .and_then(move |path: FullPath, auth_header: Option<String>, client_id: Option<String>, remote_addr: Option<std::net::SocketAddr>, data: Value| {
-                let ip_address = remote_addr.map(|addr| addr.ip().to_string());
+            .and_then(move |path: FullPath, auth_header: Option<String>, client_id: Option<String>, x_forwarded_for: Option<String>, remote_addr: Option<std::net::SocketAddr>, data: Value| {
+                let ip_address = x_forwarded_for.or_else(|| remote_addr.map(|addr| addr.ip().to_string()));  // Use X-Forwarded-For or fallback to remote addr
                 let router_clone = cloned_router_for_get.clone();
                 async move {
                     Handler::get(path.as_str().to_string(), data, auth_header, client_id, ip_address, router_clone).await
                 }
             });
 
-        let put_route = warp::path("api")
+        let put_route = path_filter.clone()
             .and(warp::put())
             .and(warp::path::full())
             .and(warp::header::optional("Authorization"))
             .and(warp::header::optional("Client-Id"))
-            .and(warp::addr::remote()) // Get the client IP address
+            .and(warp::header::optional::<String>("x-forwarded-for"))  // Check for the X-Forwarded-For header
+            .and(warp::addr::remote())  // Fallback to the remote address if no X-Forwarded-For header
             .and(warp::body::json())
-            .and_then(move |path: FullPath, auth_header: Option<String>, client_id: Option<String>, remote_addr: Option<std::net::SocketAddr>, data: Value| {
-                let ip_address = remote_addr.map(|addr| addr.ip().to_string());
+            .and_then(move |path: FullPath, auth_header: Option<String>, client_id: Option<String>, x_forwarded_for: Option<String>, remote_addr: Option<std::net::SocketAddr>, data: Value| {
+                let ip_address = x_forwarded_for.or_else(|| remote_addr.map(|addr| addr.ip().to_string()));  // Use X-Forwarded-For or fallback to remote addr
                 let router_clone = cloned_router_for_put.clone();
                 async move {
                     Handler::put(path.as_str().to_string(), data, auth_header, client_id, ip_address, router_clone).await
                 }
             });
 
-        let delete_route = warp::path("api")
+        let delete_route = path_filter.clone()
             .and(warp::delete())
             .and(warp::path::full())
             .and(warp::header::optional("Authorization"))
             .and(warp::header::optional("Client-Id"))
-            .and(warp::addr::remote()) // Get the client IP address
+            .and(warp::header::optional::<String>("x-forwarded-for"))  // Check for the X-Forwarded-For header
+            .and(warp::addr::remote())  // Fallback to the remote address if no X-Forwarded-For header
             .and(warp::query::<Value>())
-            .and_then(move |path: FullPath, auth_header: Option<String>, client_id: Option<String>, remote_addr: Option<std::net::SocketAddr>, data: Value| {
-                let ip_address = remote_addr.map(|addr| addr.ip().to_string());
+            .and_then(move |path: FullPath, auth_header: Option<String>, client_id: Option<String>, x_forwarded_for: Option<String>, remote_addr: Option<std::net::SocketAddr>, data: Value| {
+                let ip_address = x_forwarded_for.or_else(|| remote_addr.map(|addr| addr.ip().to_string()));  // Use X-Forwarded-For or fallback to remote addr
                 let router_clone = cloned_router_for_delete.clone();
                 async move {
                     Handler::delete(path.as_str().to_string(), data, auth_header, client_id, ip_address, router_clone).await
