@@ -1,6 +1,6 @@
 [package]
 name = "cnctd_server"
-version = "0.4.6"
+version = "0.4.7"
 edition = "2021"
 authors = ["Connected Dot Inc.", "Kyle Ebner <kyle@cnctd.world>"]
 description = "Collection of server APIs"
@@ -15,7 +15,7 @@ anyhow = "1.0.93"
 # async-graphql = "7.0.3"
 # async-graphql-warp = "7.0.3"
 chrono = { version = "0.4.38", features = ["serde"]}
-cnctd_aws = "0.1.9"
+# cnctd_aws = "0.1.9"
 cnctd_redis = { version = "0.1.7" }
 # cnctd_redis = { version = "0.1.4", path = "../cnctd_redis" }
 futures-util = "0.3.31"
