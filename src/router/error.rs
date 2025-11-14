@@ -1,7 +1,7 @@
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
-use warp::http::StatusCode;
+use warp::http::StatusCode as WarpStatusCode;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
 pub enum ErrorCode {
@@ -20,37 +20,55 @@ pub enum ErrorCode {
 }
 
 impl ErrorCode {
-    pub fn to_warp_status_code(&self) -> StatusCode {
+    pub fn to_warp_status_code(&self) -> WarpStatusCode {
         match self {
-            Self::BadRequest => StatusCode::BAD_REQUEST,
-            Self::Unauthorized => StatusCode::UNAUTHORIZED,
-            Self::Forbidden => StatusCode::FORBIDDEN,
-            Self::NotFound => StatusCode::NOT_FOUND,
-            Self::UnprocessableEntity => StatusCode::UNPROCESSABLE_ENTITY,
-            Self::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
-            Self::RequestTimeout => StatusCode::REQUEST_TIMEOUT,
-            Self::TooManyRequests => StatusCode::TOO_MANY_REQUESTS,
-            Self::InternalServerError => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::BadGateway => StatusCode::BAD_GATEWAY,
-            Self::ServiceUnavailable => StatusCode::SERVICE_UNAVAILABLE,
-            Self::GatewayTimeout => StatusCode::GATEWAY_TIMEOUT,
+            Self::BadRequest => WarpStatusCode::BAD_REQUEST,
+            Self::Unauthorized => WarpStatusCode::UNAUTHORIZED,
+            Self::Forbidden => WarpStatusCode::FORBIDDEN,
+            Self::NotFound => WarpStatusCode::NOT_FOUND,
+            Self::UnprocessableEntity => WarpStatusCode::UNPROCESSABLE_ENTITY,
+            Self::MethodNotAllowed => WarpStatusCode::METHOD_NOT_ALLOWED,
+            Self::RequestTimeout => WarpStatusCode::REQUEST_TIMEOUT,
+            Self::TooManyRequests => WarpStatusCode::TOO_MANY_REQUESTS,
+            Self::InternalServerError => WarpStatusCode::INTERNAL_SERVER_ERROR,
+            Self::BadGateway => WarpStatusCode::BAD_GATEWAY,
+            Self::ServiceUnavailable => WarpStatusCode::SERVICE_UNAVAILABLE,
+            Self::GatewayTimeout => WarpStatusCode::GATEWAY_TIMEOUT,
         }
     }
 
-    pub fn from_status(status: StatusCode) -> Self {
+    // Add Axum status code conversion
+    pub fn to_axum_status_code(&self) -> axum::http::StatusCode {
+        match self {
+            Self::BadRequest => axum::http::StatusCode::BAD_REQUEST,
+            Self::Unauthorized => axum::http::StatusCode::UNAUTHORIZED,
+            Self::Forbidden => axum::http::StatusCode::FORBIDDEN,
+            Self::NotFound => axum::http::StatusCode::NOT_FOUND,
+            Self::UnprocessableEntity => axum::http::StatusCode::UNPROCESSABLE_ENTITY,
+            Self::MethodNotAllowed => axum::http::StatusCode::METHOD_NOT_ALLOWED,
+            Self::RequestTimeout => axum::http::StatusCode::REQUEST_TIMEOUT,
+            Self::TooManyRequests => axum::http::StatusCode::TOO_MANY_REQUESTS,
+            Self::InternalServerError => axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Self::BadGateway => axum::http::StatusCode::BAD_GATEWAY,
+            Self::ServiceUnavailable => axum::http::StatusCode::SERVICE_UNAVAILABLE,
+            Self::GatewayTimeout => axum::http::StatusCode::GATEWAY_TIMEOUT,
+        }
+    }
+
+    pub fn from_status(status: WarpStatusCode) -> Self {
         match status {
-            StatusCode::BAD_REQUEST => Self::BadRequest,
-            StatusCode::UNAUTHORIZED => Self::Unauthorized,
-            StatusCode::FORBIDDEN => Self::Forbidden,
-            StatusCode::NOT_FOUND => Self::NotFound,
-            StatusCode::UNPROCESSABLE_ENTITY => Self::UnprocessableEntity,
-            StatusCode::METHOD_NOT_ALLOWED => Self::MethodNotAllowed,
-            StatusCode::REQUEST_TIMEOUT => Self::RequestTimeout,
-            StatusCode::TOO_MANY_REQUESTS => Self::TooManyRequests,
-            StatusCode::INTERNAL_SERVER_ERROR => Self::InternalServerError,
-            StatusCode::BAD_GATEWAY => Self::BadGateway,
-            StatusCode::SERVICE_UNAVAILABLE => Self::ServiceUnavailable,
-            StatusCode::GATEWAY_TIMEOUT => Self::GatewayTimeout,
+            WarpStatusCode::BAD_REQUEST => Self::BadRequest,
+            WarpStatusCode::UNAUTHORIZED => Self::Unauthorized,
+            WarpStatusCode::FORBIDDEN => Self::Forbidden,
+            WarpStatusCode::NOT_FOUND => Self::NotFound,
+            WarpStatusCode::UNPROCESSABLE_ENTITY => Self::UnprocessableEntity,
+            WarpStatusCode::METHOD_NOT_ALLOWED => Self::MethodNotAllowed,
+            WarpStatusCode::REQUEST_TIMEOUT => Self::RequestTimeout,
+            WarpStatusCode::TOO_MANY_REQUESTS => Self::TooManyRequests,
+            WarpStatusCode::INTERNAL_SERVER_ERROR => Self::InternalServerError,
+            WarpStatusCode::BAD_GATEWAY => Self::BadGateway,
+            WarpStatusCode::SERVICE_UNAVAILABLE => Self::ServiceUnavailable,
+            WarpStatusCode::GATEWAY_TIMEOUT => Self::GatewayTimeout,
             _ => Self::InternalServerError,
         }
     }
