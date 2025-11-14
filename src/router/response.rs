@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use warp::http::StatusCode;
+use warp::http::StatusCode as WarpStatusCode;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
 pub enum SuccessCode {
@@ -10,17 +10,24 @@ pub enum SuccessCode {
     NoContent = 204,
 }
 
-
-
 impl SuccessCode {
-    pub fn to_warp_status_code(&self) -> StatusCode {
+    pub fn to_warp_status_code(&self) -> WarpStatusCode {
         match self {
-            Self::OK => StatusCode::OK,
-            Self::Created => StatusCode::CREATED,
-            Self::Accepted => StatusCode::ACCEPTED,
-            Self::NoContent => StatusCode::NO_CONTENT,
+            Self::OK => WarpStatusCode::OK,
+            Self::Created => WarpStatusCode::CREATED,
+            Self::Accepted => WarpStatusCode::ACCEPTED,
+            Self::NoContent => WarpStatusCode::NO_CONTENT,
         }
-    
+    }
+
+    // Add Axum status code conversion
+    pub fn to_axum_status_code(&self) -> axum::http::StatusCode {
+        match self {
+            Self::OK => axum::http::StatusCode::OK,
+            Self::Created => axum::http::StatusCode::CREATED,
+            Self::Accepted => axum::http::StatusCode::ACCEPTED,
+            Self::NoContent => axum::http::StatusCode::NO_CONTENT,
+        }
     }
 }
 
