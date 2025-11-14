@@ -242,7 +242,7 @@ impl CnctdServer {
         cors
     }
 
-    // Handler functions
+    // Handler functions using the axum_* methods
     async fn handle_post<R>(
         State(state): State<AppState<R>>,
         FullPath(path): FullPath,
@@ -263,9 +263,7 @@ impl CnctdServer {
             .and_then(|h| h.to_str().ok())
             .map(|s| s.to_string());
 
-        Handler::post(path, data, auth_token, client_id, ip_address, state.router)
-            .await
-            .into_response()
+        Handler::axum_post(path, data, auth_token, client_id, ip_address, state.router).await
     }
 
     async fn handle_get<R>(
@@ -288,9 +286,7 @@ impl CnctdServer {
             .and_then(|h| h.to_str().ok())
             .map(|s| s.to_string());
 
-        Handler::get(path, data, auth_token, client_id, ip_address, state.router)
-            .await
-            .into_response()
+        Handler::axum_get(path, data, auth_token, client_id, ip_address, state.router).await
     }
 
     async fn handle_put<R>(
@@ -313,9 +309,7 @@ impl CnctdServer {
             .and_then(|h| h.to_str().ok())
             .map(|s| s.to_string());
 
-        Handler::put(path, data, auth_token, client_id, ip_address, state.router)
-            .await
-            .into_response()
+        Handler::axum_put(path, data, auth_token, client_id, ip_address, state.router).await
     }
 
     async fn handle_delete<R>(
@@ -338,9 +332,7 @@ impl CnctdServer {
             .and_then(|h| h.to_str().ok())
             .map(|s| s.to_string());
 
-        Handler::delete(path, data, auth_token, client_id, ip_address, state.router)
-            .await
-            .into_response()
+        Handler::axum_delete(path, data, auth_token, client_id, ip_address, state.router).await
     }
 
     async fn handle_redirect<R>(
