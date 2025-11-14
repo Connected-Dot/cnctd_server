@@ -1,5 +1,7 @@
 pub mod server_info;
 pub mod handlers;
+pub mod extractors;
+pub mod axum_server;
 
 use std::{fmt::Debug, sync::Arc, time::Duration};
 
@@ -16,8 +18,11 @@ use crate::{
 use self::handlers::{Handler, RedirectHandler};
 // use async_graphql::{self, http::GraphiQLSource, EmptySubscription, Schema};
 
+// Re-export for backward compatibility
+pub use axum_server::{CnctdServer, ServerConfig};
 
-
+// Keep old Warp implementation (commented out for now)
+/*
 #[derive(Debug)]
 pub struct ServerConfig<R> {
     pub id: String,
@@ -308,3 +313,4 @@ where
 {
     warp::any().map(move || handler.clone())
 }
+*/
