@@ -187,7 +187,8 @@ impl CnctdSocket {
         Ok(())
     }
 
-    async fn remove_client(client_id: &str) -> anyhow::Result<()> {
+    // Made public so it can be called from client.rs
+    pub async fn remove_client(client_id: &str) -> anyhow::Result<()> {
         let clients = CLIENTS
             .try_get()
             .ok_or_else(|| anyhow!("Clients not initialized"))?;
