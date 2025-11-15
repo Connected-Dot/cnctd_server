@@ -5,6 +5,8 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::mpsc;
 use anyhow::anyhow;
+
+#[cfg(feature = "warp")]
 use warp::reject::Rejection;
 
 use crate::{server::server_info::ServerInfo, socket::{CnctdSocket, CLIENTS}};
@@ -29,7 +31,10 @@ pub struct QueryParams {
     pub client_id: Option<String>,
 }
 
-type Sender = mpsc::UnboundedSender<std::result::Result<warp::ws::Message, warp::Error>>;
+// Use Axum message type for the sender
+type Sender = mpsc::UnboundedSender<std::result::Result<axum::extract::ws::Message, axum::Error>>;
+
+#[cfg(feature = "warp")]
 pub type Result<T> = std::result::Result<T, Rejection>;
 
 #[derive(Debug, Clone)]
@@ -73,7 +78,6 @@ impl CnctdClient {
         clients.insert(client_id.clone(), client);
         println!("clients length: {:?}", clients.len());
 
-        // let response = SuccessResponse::new(Some(SuccessCode::Created), Some("Client registered".into()), Some(client_id.clone().into()));
         let client_id_clone = client_id.clone();
         
         tokio::spawn(async move {
@@ -96,7 +100,6 @@ impl CnctdClient {
         Ok(client_id)
     }
 
-
     pub async fn to_client_info(&self, client_id: &str) -> ClientInfo {
         let (server_id, server_session_id) = ServerInfo::get_server_and_session_id().await;
         ClientInfo {
@@ -113,7 +116,6 @@ impl CnctdClient {
             updated_at: self.updated_at,
         }
     }
-
     
     pub async fn add_data(client_id: &str, data: Value) -> anyhow::Result<()> {
         let clients = CLIENTS.try_get().ok_or_else(|| anyhow!("Clients not initialized"))?;
@@ -134,7 +136,6 @@ impl CnctdClient {
             if let Value::Object(ref mut obj) = client.data {
                 obj.insert(key.to_string(), value);
             } else {
-                // Handle case where data is not an object
                 return Err(anyhow!("Data is not a JSON object"));
             }
         }
@@ -149,7 +150,6 @@ impl CnctdClient {
             if let Value::Object(ref mut obj) = client.data {
                 obj.remove(key);
             } else {
-                // Handle case where data is not an object
                 return Err(anyhow!("Data is not a JSON object"));
             }
         }
@@ -313,7 +313,6 @@ impl CnctdClient {
     }
 
     pub async fn get_client_ids(user_id: &str) -> Option<Vec<String>> {
-        // Attempt to get the read lock on the clients
         let clients = CLIENTS.try_get()?.read().await;
         
         let client_ids = clients.iter().filter_map(|(client_id, client)| {
@@ -376,12 +375,11 @@ impl CnctdClient {
     where M: Serialize + Debug + DeserializeOwned + Clone {
         let client = Self::get_client(client_id).await?;
         
-        // Serialize the message only if a sender exists
         if let Some(sender) = &client.sender {
             let serialized_msg = serde_json::to_string(msg).map_err(|e| anyhow!("Serialization error: {}", e))?;
             
-            // Attempt to send the serialized message
-            if let Err(e) = sender.send(Ok(warp::ws::Message::text(serialized_msg))) {
+            // Use Axum's message type
+            if let Err(e) = sender.send(Ok(axum::extract::ws::Message::Text(serialized_msg))) {
                 eprintln!("Send error: {}", e);
             }
         } else {
@@ -453,6 +451,4 @@ impl CnctdClient {
 
         Ok(())
     }
-
-   
 }
