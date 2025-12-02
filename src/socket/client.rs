@@ -402,8 +402,9 @@ impl CnctdClient {
 
     pub async fn message_user<M>(user_id: &str, msg: &M, exclude_client_id: Option<String>) -> anyhow::Result<()>
     where M: Serialize + Debug + DeserializeOwned + Clone {
+        println!("user_id: {}", user_id);
         let client_ids = Self::get_client_ids(user_id).await.ok_or_else(|| anyhow!("No client found for user_id: {}", user_id))?;
-        
+        println!("client_ids: {:?}", client_ids);
         client_ids.iter().for_each(|client_id| {
             if let Some(exclude_id) = &exclude_client_id {
                 if client_id == exclude_id {
