@@ -291,6 +291,7 @@ impl CnctdClient {
     
         if let Some(client) = clients_lock.get_mut(client_id) {
             client.user_id = user_id.to_string();
+            println!("[update_client_user_id] Set user_id {} on client {}", user_id, client_id);
         }
     
         Ok(())
@@ -402,6 +403,7 @@ impl CnctdClient {
     pub async fn message_user<M>(user_id: &str, msg: &M, exclude_client_id: Option<String>) -> anyhow::Result<()>
     where M: Serialize + Debug + DeserializeOwned + Clone {
         let client_ids = Self::get_client_ids(user_id).await.ok_or_else(|| anyhow!("No client found for user_id: {}", user_id))?;
+        println!("[message_user] Looking for clients with user_id: {}, found {} clients: {:?}", user_id, client_ids.len(), client_ids);
         // send messages sequentially, awaiting each send
         for client_id in client_ids.iter() {
             if let Some(exclude_id) = &exclude_client_id {
