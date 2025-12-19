@@ -403,6 +403,10 @@ impl CnctdClient {
     pub async fn message_user<M>(user_id: &str, msg: &M, exclude_client_id: Option<String>) -> anyhow::Result<()>
     where M: Serialize + Debug + DeserializeOwned + Clone {
         let client_ids = Self::get_client_ids(user_id).await.ok_or_else(|| anyhow!("No client found for user_id: {}", user_id))?;
+        let all_clients = Self::get_clients().await?;
+        for client in all_clients.iter() {
+            println!("[message_user] Client ID: {}, User ID: {}", client.0, client.1.user_id);
+        }
         println!("[message_user] Looking for clients with user_id: {}, found {} clients: {:?}", user_id, client_ids.len(), client_ids);
         // send messages sequentially, awaiting each send
         for client_id in client_ids.iter() {
