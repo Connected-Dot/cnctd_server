@@ -1,7 +1,7 @@
 pub mod client;
 
 use anyhow::anyhow;
-use client::{ClientInfo, CnctdClient, QueryParams};
+use client::{ClientFormat, ClientInfo, CnctdClient, QueryParams};
 use cnctd_redis::CnctdRedis;
 use futures_util::{SinkExt, StreamExt};
 use local_ip_address::local_ip;
@@ -86,16 +86,42 @@ impl CnctdSocket {
             .and(warp::query::<QueryParams>())
             .and_then(move |ws: Ws, router: R, params: QueryParams| {
                 let on_disconnect = config.on_disconnect.clone(); // Clone the Arc here
-        
+
                 async move {
-                    // Check for the presence of client_id
+                    // Resolve client_id: either from query param or via inline registration
                     let client_id = match params.client_id {
                         Some(id) => id,
                         None => {
-                            return Err(warp::reject::custom(NoClientId))
+                            // Support inline registration: if subscriptions are provided,
+                            // auto-register a new client (used by ESP32 and other lightweight clients
+                            // that don't have an HTTP client for the REST registration step).
+                            if let Some(ref subs_str) = params.subscriptions {
+                                let subscriptions: Vec<String> = subs_str
+                                    .split(',')
+                                    .map(|s| s.trim().to_string())
+                                    .filter(|s| !s.is_empty())
+                                    .collect();
+                                let format = ClientFormat::from_str_opt(params.format.as_deref());
+                                match CnctdClient::register_client_with_format(
+                                    subscriptions,
+                                    None,
+                                    format,
+                                ).await {
+                                    Ok(id) => {
+                                        println!("Inline-registered client: {}", id);
+                                        id
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Inline registration failed: {:?}", e);
+                                        return Err(warp::reject::custom(NoClientId));
+                                    }
+                                }
+                            } else {
+                                return Err(warp::reject::custom(NoClientId));
+                            }
                         },
                     };
-        
+
                     // Proceed with connection setup
                     Ok(ws.on_upgrade(move |socket| {
                         // Pass the cloned on_disconnect callback here

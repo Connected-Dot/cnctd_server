@@ -12,6 +12,29 @@ use crate::{
     socket::{CnctdSocket, CLIENTS},
 };
 
+/// Wire format a client expects for push messages.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ClientFormat {
+    Json,
+    Binary,
+}
+
+impl Default for ClientFormat {
+    fn default() -> Self {
+        Self::Json
+    }
+}
+
+impl ClientFormat {
+    pub fn from_str_opt(s: Option<&str>) -> Self {
+        match s {
+            Some("binary") => Self::Binary,
+            _ => Self::Json,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ClientInfo {
     pub client_id: String,
@@ -19,6 +42,7 @@ pub struct ClientInfo {
     pub ip_address: Option<String>,
     pub authenticated: bool,
     pub subscriptions: Vec<String>,
+    pub format: ClientFormat,
     pub data: Value,
     pub connected: bool,
     pub server_id: String,
@@ -30,6 +54,10 @@ pub struct ClientInfo {
 #[derive(Debug, Deserialize)]
 pub struct QueryParams {
     pub client_id: Option<String>,
+    /// Comma-separated subscription channels (for inline registration without REST).
+    pub subscriptions: Option<String>,
+    /// Wire format: "json" (default) or "binary".
+    pub format: Option<String>,
 }
 
 type Sender = mpsc::UnboundedSender<std::result::Result<warp::ws::Message, warp::Error>>;
@@ -41,6 +69,7 @@ pub struct CnctdClient {
     pub ip_address: Option<String>,
     pub authenticated: bool,
     pub subscriptions: Vec<String>,
+    pub format: ClientFormat,
     pub sender: Option<Sender>,
     pub data: Value,
     pub created_at: DateTime<FixedOffset>,
@@ -48,12 +77,13 @@ pub struct CnctdClient {
 }
 
 impl CnctdClient {
-    pub fn new(subscriptions: Vec<String>, ip_address: Option<String>) -> Self {
+    pub fn new(subscriptions: Vec<String>, ip_address: Option<String>, format: ClientFormat) -> Self {
         Self {
             user_id: "".to_string(),
             ip_address,
             authenticated: false,
             subscriptions,
+            format,
             sender: None,
             data: json!({}),
             created_at: chrono::offset::Utc::now()
@@ -67,9 +97,17 @@ impl CnctdClient {
         subscriptions: Vec<String>,
         ip_address: Option<String>,
     ) -> anyhow::Result<String> {
+        Self::register_client_with_format(subscriptions, ip_address, ClientFormat::Json).await
+    }
+
+    pub async fn register_client_with_format(
+        subscriptions: Vec<String>,
+        ip_address: Option<String>,
+        format: ClientFormat,
+    ) -> anyhow::Result<String> {
         let client_id = uuid::Uuid::new_v4().to_string();
 
-        let client = Self::new(subscriptions, ip_address);
+        let client = Self::new(subscriptions, ip_address, format);
         let clients_lock = match CLIENTS.try_get() {
             Some(clients) => clients,
             None => {
@@ -112,6 +150,7 @@ impl CnctdClient {
             ip_address: self.ip_address.clone(),
             authenticated: self.authenticated,
             subscriptions: self.subscriptions.clone(),
+            format: self.format.clone(),
             data: self.data.clone(),
             connected: self.sender.is_some(),
             server_id,
@@ -402,6 +441,7 @@ impl CnctdClient {
                 ip_address: client.ip_address.clone(),
                 authenticated: client.authenticated,
                 subscriptions: client.subscriptions.clone(),
+                format: client.format.clone(),
                 data: client.data.clone(),
                 connected: client.sender.is_some(),
                 server_id: server_id.clone(),
@@ -473,12 +513,47 @@ impl CnctdClient {
         Ok(())
     }
 
+    /// Send a raw binary WebSocket frame to a specific client.
+    pub async fn message_client_binary(client_id: &str, data: Vec<u8>) -> anyhow::Result<()> {
+        let client = Self::get_client(client_id).await?;
+        if let Some(sender) = &client.sender {
+            if let Err(e) = sender.send(Ok(warp::ws::Message::binary(data))) {
+                eprintln!("Binary send error: {}", e);
+            }
+        } else {
+            return Err(anyhow!("Client with id {} has no active sender", client_id));
+        }
+        Ok(())
+    }
+
+    /// Returns (client_id, format) pairs for all subscribers of a channel.
+    /// Useful for dispatching format-aware messages (JSON vs binary).
+    pub async fn get_subscriber_clients(channel: &str) -> Vec<(String, ClientFormat)> {
+        let clients = CLIENTS
+            .try_get()
+            .expect("Clients not initialized")
+            .read()
+            .await;
+        clients
+            .iter()
+            .filter_map(|(client_id, client)| {
+                if client.subscriptions.contains(&channel.to_string()) {
+                    Some((client_id.clone(), client.format.clone()))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
     pub async fn message_multiple_clients<M>(client_ids: Vec<String>, msg: &M) -> anyhow::Result<()>
     where
         M: Serialize + Debug + DeserializeOwned + Clone,
     {
         for client_id in client_ids {
-            let _ = Self::message_client(&client_id, msg);
+            if let Err(e) = Self::message_client(&client_id, msg).await {
+                eprintln!("Failed to message client {}: {}", client_id, e);
+            }
         }
 
         Ok(())
@@ -533,14 +608,16 @@ impl CnctdClient {
     {
         let client_ids = Self::get_subscriber_client_ids(channel).await;
 
-        client_ids.iter().for_each(|client_id| {
+        for client_id in client_ids.iter() {
             if let Some(exclude_id) = &exclude_client_id {
                 if client_id == exclude_id {
-                    return;
+                    continue;
                 }
             }
-            let _ = Self::message_client(client_id, msg);
-        });
+            if let Err(e) = Self::message_client(client_id, msg).await {
+                eprintln!("Failed to message subscriber {}: {}", client_id, e);
+            }
+        }
 
         Ok(())
     }
@@ -559,22 +636,29 @@ impl CnctdClient {
             .ok_or_else(|| anyhow!("Clients not initialized"))?
             .read()
             .await;
-        for (client_id, client) in clients.iter() {
-            if let Value::Object(obj) = &client.data {
-                if let Some(value) = obj.get(data_key) {
-                    if value.as_str() == Some(data_value) {
-                        println!(
-                            "Found matching key-value pair: {} - {}",
-                            data_key, data_value
-                        );
-                        if let Some(exclude_id) = &exclude_client_id {
-                            if client_id == exclude_id {
-                                continue;
-                            }
+        let matching_ids: Vec<String> = clients
+            .iter()
+            .filter_map(|(client_id, client)| {
+                if let Value::Object(obj) = &client.data {
+                    if let Some(value) = obj.get(data_key) {
+                        if value.as_str() == Some(data_value) {
+                            return Some(client_id.clone());
                         }
-                        let _ = Self::message_client(client_id, msg);
                     }
                 }
+                None
+            })
+            .collect();
+        drop(clients);
+
+        for client_id in matching_ids {
+            if let Some(exclude_id) = &exclude_client_id {
+                if &client_id == exclude_id {
+                    continue;
+                }
+            }
+            if let Err(e) = Self::message_client(&client_id, msg).await {
+                eprintln!("Failed to message client {}: {}", client_id, e);
             }
         }
 
