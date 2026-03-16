@@ -5,6 +5,8 @@ use serde_json::Value;
 use warp::{reject::Rejection, reply::Reply};
 use warp::hyper::Uri;
 
+use warp::http::Response;
+
 use crate::router::HttpMethod;
 use crate::router::RestRouterFunction;
 
@@ -104,6 +106,35 @@ impl Handler {
                 let json = warp::reply::json(&e);
             
                 Ok(warp::reply::with_status(json, status.clone()))
+            }
+        }
+    }
+
+    pub async fn get_binary<R>(path: String, data: Value, auth_token: Option<String>, client_id: Option<String>, ip_address: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
+    where
+        R: RestRouterFunction,
+    {
+        match router.route_binary(HttpMethod::GET, path, data, auth_token, client_id, ip_address).await {
+            Ok(Some(binary)) => {
+                let response = Response::builder()
+                    .header("content-type", binary.content_type)
+                    .body(binary.data)
+                    .unwrap();
+                Ok(response)
+            }
+            Ok(None) => {
+                // Not a binary route — reject so warp falls through to next filter
+                Err(warp::reject::not_found())
+            }
+            Err(e) => {
+                let status = e.status.to_warp_status_code();
+                let body = serde_json::to_vec(&e).unwrap_or_default();
+                let response = Response::builder()
+                    .status(status)
+                    .header("content-type", "application/json")
+                    .body(body)
+                    .unwrap();
+                Ok(response)
             }
         }
     }

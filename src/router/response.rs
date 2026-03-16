@@ -10,8 +10,6 @@ pub enum SuccessCode {
     NoContent = 204,
 }
 
-
-
 impl SuccessCode {
     pub fn to_warp_status_code(&self) -> StatusCode {
         match self {
@@ -20,7 +18,6 @@ impl SuccessCode {
             Self::Accepted => StatusCode::ACCEPTED,
             Self::NoContent => StatusCode::NO_CONTENT,
         }
-    
     }
 }
 
@@ -35,7 +32,12 @@ pub struct SuccessResponse {
 impl SuccessResponse {
     pub fn new(status: Option<SuccessCode>, msg: Option<String>, data: Option<Value>) -> Self {
         let status = status.unwrap_or(SuccessCode::OK);
-        Self { success: true, status,  msg, data }
+        Self {
+            success: true,
+            status,
+            msg,
+            data,
+        }
     }
 }
 
@@ -72,10 +74,32 @@ macro_rules! success_msg {
 #[macro_export]
 macro_rules! created {
     ($msg:expr, $data:expr) => {
-        SuccessResponse::new(Some(SuccessCode::Created), Some($msg.to_string()), Some($data))
+        SuccessResponse::new(
+            Some(SuccessCode::Created),
+            Some($msg.to_string()),
+            Some($data),
+        )
     };
 }
 
+#[derive(Debug, Clone)]
+pub struct BinaryResponse {
+    pub data: Vec<u8>,
+    pub content_type: String,
+}
+
+impl BinaryResponse {
+    pub fn new(data: Vec<u8>, content_type: &str) -> Self {
+        Self {
+            data,
+            content_type: content_type.to_string(),
+        }
+    }
+
+    pub fn octet_stream(data: Vec<u8>) -> Self {
+        Self::new(data, "application/octet-stream")
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SocketResponse {
@@ -91,7 +115,7 @@ impl SocketResponse {
             success: true,
             msg,
             data,
-            response_channel
+            response_channel,
         }
     }
 
@@ -100,7 +124,7 @@ impl SocketResponse {
             success: false,
             msg,
             data,
-            response_channel
+            response_channel,
         }
     }
 }

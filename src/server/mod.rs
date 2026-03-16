@@ -83,7 +83,7 @@ impl CnctdServer {
                 let socket_routes = CnctdSocket::build_routes(config.clone());
                 // let graphql_routes = CnctdGraphQL::build_routes(graphql_config);
 
-                
+
                 let routes = rest_routes
                     .or(socket_routes)
                     // .or(graphql_routes)
@@ -199,6 +199,7 @@ impl CnctdServer {
     {
         let cloned_router_for_post = Arc::clone(&router);
         let cloned_router_for_get = Arc::clone(&router);
+        let cloned_router_for_get_binary = Arc::clone(&router);
         let cloned_router_for_put = Arc::clone(&router);
         let cloned_router_for_delete = Arc::clone(&router);
         let cloned_router_for_redirect = Arc::clone(&router);
@@ -219,6 +220,22 @@ impl CnctdServer {
                 let router_clone = cloned_router_for_post.clone();
                 async move {
                     Handler::post(path.as_str().to_string(), data, auth_header, client_id, ip_address, router_clone).await
+                }
+            });
+
+        let get_binary_route = path_filter.clone()
+            .and(warp::get())
+            .and(warp::path::full())
+            .and(warp::header::optional("Authorization"))
+            .and(warp::header::optional("Client-Id"))
+            .and(warp::header::optional::<String>("x-forwarded-for"))
+            .and(warp::addr::remote())
+            .and(warp::query::<Value>())
+            .and_then(move |path: FullPath, auth_header: Option<String>, client_id: Option<String>, x_forwarded_for: Option<String>, remote_addr: Option<std::net::SocketAddr>, data: Value| {
+                let ip_address = x_forwarded_for.or_else(|| remote_addr.map(|addr| addr.ip().to_string()));
+                let router_clone = cloned_router_for_get_binary.clone();
+                async move {
+                    Handler::get_binary(path.as_str().to_string(), data, auth_header, client_id, ip_address, router_clone).await
                 }
             });
 
@@ -285,6 +302,7 @@ impl CnctdServer {
 
         let routes = redirect_route
             .or(post_route)
+            .or(get_binary_route)
             .or(get_route)
             .or(put_route)
             .or(delete_route);

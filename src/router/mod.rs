@@ -11,7 +11,7 @@ use serde_json::Value;
 
 
 use self::error::ErrorResponse;
-use self::response::SuccessResponse;
+use self::response::{BinaryResponse, SuccessResponse};
 
 
 #[derive(Debug)]
@@ -28,6 +28,14 @@ where
 {
     fn route(&self, method: HttpMethod, path: String, data: Value, auth_token: Option<String>, client_id: Option<String>, ip_address: Option<String>) -> Pin<Box<dyn Future<Output = Result<SuccessResponse, ErrorResponse>> + Send>>;
     fn route_redirect(&self, path: String, data: Value, auth_token: Option<String>, client_id: Option<String>) -> Pin<Box<dyn Future<Output = String> + Send>>;
+
+    /// Route a request that returns raw binary data instead of JSON.
+    /// Returns `Ok(Some(BinaryResponse))` if the path is handled as binary,
+    /// `Ok(None)` if this path should fall through to normal JSON routing,
+    /// or `Err(ErrorResponse)` on failure.
+    fn route_binary(&self, _method: HttpMethod, _path: String, _data: Value, _auth_token: Option<String>, _client_id: Option<String>, _ip_address: Option<String>) -> Pin<Box<dyn Future<Output = Result<Option<BinaryResponse>, ErrorResponse>> + Send>> {
+        Box::pin(async { Ok(None) })
+    }
 }
 
 pub trait SocketRouterFunction<Req, Resp>: Send + Sync + Clone

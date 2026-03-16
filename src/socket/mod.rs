@@ -13,12 +13,18 @@ use warp::reject::Reject;
 use warp::ws::{Message as WebSocketMessage, WebSocket};
 use warp::Filter;
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use tokio::sync::{mpsc, RwLock};
 use std::{sync::Arc, fmt::Debug};
 
 use crate::router::message::Message;
 use crate::router::SocketRouterFunction;
 use crate::server::server_info::ServerInfo;
+
+/// Callback type for handling incoming binary WebSocket frames.
+/// Arguments: (client_id, raw_bytes)
+pub type OnBinaryHandler = Arc<dyn Fn(String, Vec<u8>) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 #[derive(Debug)]
 struct NoClientId;
@@ -31,6 +37,7 @@ pub struct SocketConfig<R> {
     pub secret: Option<Vec<u8>>,
     pub redis_url: Option<String>,
     pub on_disconnect: Option<Arc<dyn Fn(ClientInfo) + Send + Sync>>,
+    pub on_binary: Option<OnBinaryHandler>,
 }
 
 impl<R> SocketConfig<R> {
@@ -40,7 +47,13 @@ impl<R> SocketConfig<R> {
             secret,
             redis_url,
             on_disconnect,
+            on_binary: None,
         }
+    }
+
+    pub fn with_on_binary(mut self, handler: OnBinaryHandler) -> Self {
+        self.on_binary = Some(handler);
+        self
     }
 }
 
@@ -85,7 +98,8 @@ impl CnctdSocket {
             .and(warp::any().map(move || config.router.clone()))
             .and(warp::query::<QueryParams>())
             .and_then(move |ws: Ws, router: R, params: QueryParams| {
-                let on_disconnect = config.on_disconnect.clone(); // Clone the Arc here
+                let on_disconnect = config.on_disconnect.clone();
+                let on_binary = config.on_binary.clone();
 
                 async move {
                     // Resolve client_id: either from query param or via inline registration
@@ -124,8 +138,7 @@ impl CnctdSocket {
 
                     // Proceed with connection setup
                     Ok(ws.on_upgrade(move |socket| {
-                        // Pass the cloned on_disconnect callback here
-                        Self::handle_connection(socket, router, client_id, redis, on_disconnect.clone())
+                        Self::handle_connection(socket, router, client_id, redis, on_disconnect.clone(), on_binary)
                     }))
                 }
             });
@@ -178,9 +191,10 @@ impl CnctdSocket {
         client_id: String,
         redis: bool,
         on_disconnect: Option<Arc<dyn Fn(ClientInfo) + Send + Sync>>,
-    ) where 
+        on_binary: Option<OnBinaryHandler>,
+    ) where
         M: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static,
-        Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static, 
+        Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static,
         R: SocketRouterFunction<M, Resp> + 'static,
     {
         let (mut ws_tx, mut ws_rx) = websocket.split();
@@ -214,8 +228,12 @@ impl CnctdSocket {
             while let Some(result) = ws_rx.next().await {
                 match result {
                     Ok(msg) => {
-                        if let Ok(message_str) = msg.to_str() {
-                            // println!("Message string: {}", message_str);
+                        if msg.is_binary() {
+                            if let Some(ref handler) = on_binary {
+                                let bytes = msg.into_bytes();
+                                handler(client_id_clone.clone(), bytes).await;
+                            }
+                        } else if let Ok(message_str) = msg.to_str() {
                             if let Ok(message) = serde_json::from_str::<M>(message_str) {
                                 match router.route(message, client_id_clone.clone()).await {
                                     Some(response) => {
@@ -223,9 +241,7 @@ impl CnctdSocket {
                                             let _ = resp_tx.send(Ok(WebSocketMessage::text(response_str)));
                                         }
                                     },
-                                    None => {
-
-                                    }
+                                    None => {}
                                 }
                             }
                         }
