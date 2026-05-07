@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::socket::{client::CnctdClient, CnctdSocket};
+use crate::socket::{connection::CnctdConnection, CnctdSocket};
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct Message {
@@ -47,9 +47,9 @@ impl Message {
         Ok(())
     }
 
-    pub async fn to_user(&self, user_id: &str, exclude_client_id: Option<String>) -> anyhow::Result<()> {
-        CnctdClient::message_user(user_id, self, exclude_client_id).await?;
-        
+    pub async fn to_user(&self, user_id: &str, exclude_connection_id: Option<String>) -> anyhow::Result<()> {
+        CnctdConnection::message_user(user_id, self, exclude_connection_id).await?;
+
         Ok(())
     }
 }

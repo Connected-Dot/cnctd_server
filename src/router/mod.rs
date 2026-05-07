@@ -26,14 +26,14 @@ pub trait RestRouterFunction: Send + Sync + Clone
 where
     Self: Send + Sync + Clone,
 {
-    fn route(&self, method: HttpMethod, path: String, data: Value, auth_token: Option<String>, client_id: Option<String>, ip_address: Option<String>) -> Pin<Box<dyn Future<Output = Result<SuccessResponse, ErrorResponse>> + Send>>;
-    fn route_redirect(&self, path: String, data: Value, auth_token: Option<String>, client_id: Option<String>) -> Pin<Box<dyn Future<Output = String> + Send>>;
+    fn route(&self, method: HttpMethod, path: String, data: Value, auth_token: Option<String>, connection_id: Option<String>, ip_address: Option<String>) -> Pin<Box<dyn Future<Output = Result<SuccessResponse, ErrorResponse>> + Send>>;
+    fn route_redirect(&self, path: String, data: Value, auth_token: Option<String>, connection_id: Option<String>) -> Pin<Box<dyn Future<Output = String> + Send>>;
 
     /// Route a request that returns raw binary data instead of JSON.
     /// Returns `Ok(Some(BinaryResponse))` if the path is handled as binary,
     /// `Ok(None)` if this path should fall through to normal JSON routing,
     /// or `Err(ErrorResponse)` on failure.
-    fn route_binary(&self, _method: HttpMethod, _path: String, _data: Value, _auth_token: Option<String>, _client_id: Option<String>, _ip_address: Option<String>) -> Pin<Box<dyn Future<Output = Result<Option<BinaryResponse>, ErrorResponse>> + Send>> {
+    fn route_binary(&self, _method: HttpMethod, _path: String, _data: Value, _auth_token: Option<String>, _connection_id: Option<String>, _ip_address: Option<String>) -> Pin<Box<dyn Future<Output = Result<Option<BinaryResponse>, ErrorResponse>> + Send>> {
         Box::pin(async { Ok(None) })
     }
 }
@@ -44,6 +44,6 @@ where
     Req: Serialize + for<'de> Deserialize<'de> + Clone + Debug,
     Resp: Serialize + for<'de> Deserialize<'de> + Clone + Debug,
 {
-    fn route(&self, msg: Req, client_id: String) -> Pin<Box<dyn Future<Output = Option<Resp>> + Send>>;
+    fn route(&self, msg: Req, connection_id: String) -> Pin<Box<dyn Future<Output = Option<Resp>> + Send>>;
 }
 

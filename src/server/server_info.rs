@@ -7,7 +7,7 @@ use serde_json::json;
 use state::InitCell;
 use tokio::sync::RwLock;
 
-use crate::{router::message::Message, socket::{CnctdSocket, CLIENTS}};
+use crate::{router::message::Message, socket::{CnctdSocket, CONNECTIONS}};
 
 pub static SERVER_INFO: InitCell<Arc<RwLock<ServerInfo>>> = InitCell::new();
 
@@ -78,8 +78,8 @@ impl ServerInfo {
         })?;
 
         if server_info.websocket {
-            let clients = CLIENTS.get().read().await;
-            server_info.current_connections = clients.len();
+            let connections = CONNECTIONS.get().read().await;
+            server_info.current_connections = connections.len();
             let msg = Message::new("server-info", "heartbeat", Some(json!(server_info.clone())));
             CnctdSocket::broadcast_message(&msg).await?;
         }
