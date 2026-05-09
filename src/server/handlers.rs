@@ -52,10 +52,12 @@ impl Handler {
             .await;
         match binary_attempt {
             Ok(Some(binary)) => {
-                let response = Response::builder()
-                    .header("content-type", binary.content_type)
-                    .body(binary.data.into())
-                    .unwrap();
+                let mut builder = Response::builder()
+                    .header("content-type", binary.content_type);
+                if let Some(s) = binary.status {
+                    builder = builder.status(s);
+                }
+                let response = builder.body(binary.data.into()).unwrap();
                 return Ok(response);
             }
             Ok(None) => {
@@ -153,10 +155,12 @@ impl Handler {
     {
         match router.route_binary(HttpMethod::GET, path, data, auth_token, connection_id, ip_address).await {
             Ok(Some(binary)) => {
-                let response = Response::builder()
-                    .header("content-type", binary.content_type)
-                    .body(binary.data)
-                    .unwrap();
+                let mut builder = Response::builder()
+                    .header("content-type", binary.content_type);
+                if let Some(s) = binary.status {
+                    builder = builder.status(s);
+                }
+                let response = builder.body(binary.data).unwrap();
                 Ok(response)
             }
             Ok(None) => {

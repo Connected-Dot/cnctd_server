@@ -86,6 +86,10 @@ macro_rules! created {
 pub struct BinaryResponse {
     pub data: Vec<u8>,
     pub content_type: String,
+    /// HTTP status code. `None` = 200 OK (the default). Set to e.g. 202
+    /// when the endpoint needs to ack a request without a JSON body —
+    /// MCP streamable-HTTP requires `202 Accepted` for notifications.
+    pub status: Option<u16>,
 }
 
 impl BinaryResponse {
@@ -93,7 +97,16 @@ impl BinaryResponse {
         Self {
             data,
             content_type: content_type.to_string(),
+            status: None,
         }
+    }
+
+    /// Builder: override the default 200 OK status. Useful for protocols
+    /// that distinguish between "request handled" and "request accepted,
+    /// no body" (202), or that explicitly need other 2xx codes.
+    pub fn with_status(mut self, status: u16) -> Self {
+        self.status = Some(status);
+        self
     }
 
     pub fn octet_stream(data: Vec<u8>) -> Self {
