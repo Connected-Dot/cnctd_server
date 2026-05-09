@@ -30,22 +30,59 @@ pub struct RedirectQuery {
 pub struct Handler;
 
 impl Handler {
-    pub async fn post<R>(path: String, data: Value, auth_token: Option<String>, connection_id: Option<String>, ip_address: Option<String>, router: Arc<R>) -> Result<impl warp::Reply>
+    pub async fn post<R>(path: String, data: Value, auth_token: Option<String>, connection_id: Option<String>, ip_address: Option<String>, router: Arc<R>) -> Result<warp::reply::Response>
     where
         R: RestRouterFunction,
     {
-        match router.route(HttpMethod::POST, path, data, auth_token, connection_id, ip_address).await {
-            Ok(response) => {
-                let status = &response.status.to_warp_status_code();
-                let json = warp::reply::json(&response);
-
-                Ok(warp::reply::with_status(json, status.clone()))
+        // First try the raw-binary route. Routers that don't override
+        // `route_binary` return Ok(None) and we fall through to the standard
+        // JSON-wrapped path. Routers that do return a binary response
+        // (raw bytes + content-type, no SuccessResponse envelope) — used
+        // for endpoints that need spec-compliant wire formats like MCP /
+        // JSON-RPC, raw webhooks, etc.
+        let binary_attempt = router
+            .route_binary(
+                HttpMethod::POST,
+                path.clone(),
+                data.clone(),
+                auth_token.clone(),
+                connection_id.clone(),
+                ip_address.clone(),
+            )
+            .await;
+        match binary_attempt {
+            Ok(Some(binary)) => {
+                let response = Response::builder()
+                    .header("content-type", binary.content_type)
+                    .body(binary.data.into())
+                    .unwrap();
+                return Ok(response);
+            }
+            Ok(None) => {
+                // Fall through to standard JSON routing.
             }
             Err(e) => {
-                let status = &e.status.to_warp_status_code();
+                let status = e.status.to_warp_status_code();
+                let body = serde_json::to_vec(&e).unwrap_or_default();
+                let response = Response::builder()
+                    .status(status)
+                    .header("content-type", "application/json")
+                    .body(body.into())
+                    .unwrap();
+                return Ok(response);
+            }
+        }
+
+        match router.route(HttpMethod::POST, path, data, auth_token, connection_id, ip_address).await {
+            Ok(response) => {
+                let status = response.status.to_warp_status_code();
+                let json = warp::reply::json(&response);
+                Ok(warp::reply::with_status(json, status).into_response())
+            }
+            Err(e) => {
+                let status = e.status.to_warp_status_code();
                 let json = warp::reply::json(&e);
-            
-                Ok(warp::reply::with_status(json, status.clone()))
+                Ok(warp::reply::with_status(json, status).into_response())
             }
         }
     }
