@@ -207,17 +207,22 @@ impl CnctdServer {
         let path_string = path.unwrap_or_else(|| "api".to_string());
         let path_filter = warp::path(path_string.clone()).boxed();
 
-        // Accept optional JSON body for POST — if body is missing, empty, or not
-        // valid JSON, fall back to `{}`. This allows webhooks from external services
-        // (e.g. Sonos events) that may send bodies without Content-Type headers,
-        // and also lets clients POST without a body for simple operations.
+        // Accept optional JSON body for POST — capture the raw bytes AND the
+        // parsed Value. Bytes are needed by routes that verify byte-exact
+        // signatures over the body (Stripe webhooks, GitHub webhooks); the
+        // parsed Value is the convenience path for everything else. If the
+        // body is missing or unparseable, Value falls back to `{}`. This
+        // also allows webhooks from external services (e.g. Sonos) that may
+        // send bodies without Content-Type, and lets clients POST without a
+        // body for simple operations.
         let optional_json_body = warp::body::bytes()
             .map(|bytes: warp::hyper::body::Bytes| {
-                if bytes.is_empty() {
+                let value = if bytes.is_empty() {
                     serde_json::json!({})
                 } else {
                     serde_json::from_slice(&bytes).unwrap_or_else(|_| serde_json::json!({}))
-                }
+                };
+                (bytes, value)
             });
 
         let post_route = path_filter.clone()
@@ -228,11 +233,12 @@ impl CnctdServer {
             .and(warp::header::optional::<String>("x-forwarded-for"))  // Check for the X-Forwarded-For header
             .and(warp::addr::remote())  // Fallback to the remote address if no X-Forwarded-For header
             .and(optional_json_body)
-            .and_then(move |path: FullPath, auth_header: Option<String>, connection_id: Option<String>, x_forwarded_for: Option<String>, remote_addr: Option<std::net::SocketAddr>, data: Value| {
+            .and_then(move |path: FullPath, auth_header: Option<String>, connection_id: Option<String>, x_forwarded_for: Option<String>, remote_addr: Option<std::net::SocketAddr>, body: (warp::hyper::body::Bytes, Value)| {
                 let ip_address = x_forwarded_for.or_else(|| remote_addr.map(|addr| addr.ip().to_string()));  // Use X-Forwarded-For or fallback to remote addr
                 let router_clone = cloned_router_for_post.clone();
+                let (body_bytes, data) = body;
                 async move {
-                    Handler::post(path.as_str().to_string(), data, auth_header, connection_id, ip_address, router_clone).await
+                    Handler::post(path.as_str().to_string(), body_bytes, data, auth_header, connection_id, ip_address, router_clone).await
                 }
             });
 

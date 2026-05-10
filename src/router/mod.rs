@@ -6,12 +6,17 @@ pub mod error;
 
 use std::{future::Future, pin::Pin};
 use std::fmt::Debug;
+use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 
 use self::error::ErrorResponse;
 use self::response::{BinaryResponse, SuccessResponse};
+
+// Re-export so consumers can use raw-body routes without depending on `bytes`
+// directly: `use cnctd_server::router::Bytes;` (or via the crate root).
+pub use bytes::Bytes as ReqBodyBytes;
 
 
 #[derive(Debug)]
@@ -34,6 +39,28 @@ where
     /// `Ok(None)` if this path should fall through to normal JSON routing,
     /// or `Err(ErrorResponse)` on failure.
     fn route_binary(&self, _method: HttpMethod, _path: String, _data: Value, _auth_token: Option<String>, _connection_id: Option<String>, _ip_address: Option<String>) -> Pin<Box<dyn Future<Output = Result<Option<BinaryResponse>, ErrorResponse>> + Send>> {
+        Box::pin(async { Ok(None) })
+    }
+
+    /// Route a POST request with access to the **raw request body bytes** in
+    /// addition to the parsed Value. Use this for endpoints that need to
+    /// verify byte-exact signatures (Stripe webhooks, GitHub webhooks,
+    /// anything HMAC-signed over the body). The framework still parses the
+    /// body to a Value for convenience — implementations can use either.
+    ///
+    /// Tried BEFORE `route_binary` and `route` in the POST dispatch chain.
+    /// Default impl returns `Ok(None)` so existing routers are unaffected.
+    fn route_with_raw_body(
+        &self,
+        _method: HttpMethod,
+        _path: String,
+        _body_bytes: Bytes,
+        _data: Value,
+        _auth_token: Option<String>,
+        _connection_id: Option<String>,
+        _ip_address: Option<String>,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<BinaryResponse>, ErrorResponse>> + Send>>
+    {
         Box::pin(async { Ok(None) })
     }
 }

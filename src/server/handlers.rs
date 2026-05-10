@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::fmt::Debug;
+use bytes::Bytes;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::Value;
 use warp::{reject::Rejection, reply::Reply};
@@ -30,16 +31,50 @@ pub struct RedirectQuery {
 pub struct Handler;
 
 impl Handler {
-    pub async fn post<R>(path: String, data: Value, auth_token: Option<String>, connection_id: Option<String>, ip_address: Option<String>, router: Arc<R>) -> Result<warp::reply::Response>
+    pub async fn post<R>(path: String, body_bytes: Bytes, data: Value, auth_token: Option<String>, connection_id: Option<String>, ip_address: Option<String>, router: Arc<R>) -> Result<warp::reply::Response>
     where
         R: RestRouterFunction,
     {
-        // First try the raw-binary route. Routers that don't override
-        // `route_binary` return Ok(None) and we fall through to the standard
-        // JSON-wrapped path. Routers that do return a binary response
-        // (raw bytes + content-type, no SuccessResponse envelope) — used
-        // for endpoints that need spec-compliant wire formats like MCP /
-        // JSON-RPC, raw webhooks, etc.
+        // Dispatch chain (first match wins):
+        //   1. route_with_raw_body — handlers that need byte-exact body access
+        //      (signed webhooks, anything HMAC-verified over the body).
+        //   2. route_binary — non-envelope responses (MCP JSON-RPC, etc).
+        //   3. route — standard JSON-wrapped envelope path.
+
+        let raw_attempt = router
+            .route_with_raw_body(
+                HttpMethod::POST,
+                path.clone(),
+                body_bytes.clone(),
+                data.clone(),
+                auth_token.clone(),
+                connection_id.clone(),
+                ip_address.clone(),
+            )
+            .await;
+        match raw_attempt {
+            Ok(Some(binary)) => {
+                let mut builder = Response::builder()
+                    .header("content-type", binary.content_type);
+                if let Some(s) = binary.status {
+                    builder = builder.status(s);
+                }
+                let response = builder.body(binary.data.into()).unwrap();
+                return Ok(response);
+            }
+            Ok(None) => {}
+            Err(e) => {
+                let status = e.status.to_warp_status_code();
+                let body = serde_json::to_vec(&e).unwrap_or_default();
+                let response = Response::builder()
+                    .status(status)
+                    .header("content-type", "application/json")
+                    .body(body.into())
+                    .unwrap();
+                return Ok(response);
+            }
+        }
+
         let binary_attempt = router
             .route_binary(
                 HttpMethod::POST,
