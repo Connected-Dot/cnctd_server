@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::fmt::Debug;
 use bytes::Bytes;
@@ -31,7 +32,7 @@ pub struct RedirectQuery {
 pub struct Handler;
 
 impl Handler {
-    pub async fn post<R>(path: String, body_bytes: Bytes, data: Value, auth_token: Option<String>, connection_id: Option<String>, ip_address: Option<String>, router: Arc<R>) -> Result<warp::reply::Response>
+    pub async fn post<R>(path: String, body_bytes: Bytes, headers: HashMap<String, String>, data: Value, auth_token: Option<String>, connection_id: Option<String>, ip_address: Option<String>, router: Arc<R>) -> Result<warp::reply::Response>
     where
         R: RestRouterFunction,
     {
@@ -47,6 +48,7 @@ impl Handler {
                 path.clone(),
                 body_bytes.clone(),
                 data.clone(),
+                headers,
                 auth_token.clone(),
                 connection_id.clone(),
                 ip_address.clone(),

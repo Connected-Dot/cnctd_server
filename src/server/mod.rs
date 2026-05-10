@@ -232,13 +232,22 @@ impl CnctdServer {
             .and(warp::header::optional("Client-Id"))
             .and(warp::header::optional::<String>("x-forwarded-for"))  // Check for the X-Forwarded-For header
             .and(warp::addr::remote())  // Fallback to the remote address if no X-Forwarded-For header
+            .and(warp::header::headers_cloned())  // All headers — for raw-body routes (webhook signature verification, etc)
             .and(optional_json_body)
-            .and_then(move |path: FullPath, auth_header: Option<String>, connection_id: Option<String>, x_forwarded_for: Option<String>, remote_addr: Option<std::net::SocketAddr>, body: (warp::hyper::body::Bytes, Value)| {
+            .and_then(move |path: FullPath, auth_header: Option<String>, connection_id: Option<String>, x_forwarded_for: Option<String>, remote_addr: Option<std::net::SocketAddr>, header_map: warp::http::HeaderMap, body: (warp::hyper::body::Bytes, Value)| {
                 let ip_address = x_forwarded_for.or_else(|| remote_addr.map(|addr| addr.ip().to_string()));  // Use X-Forwarded-For or fallback to remote addr
                 let router_clone = cloned_router_for_post.clone();
                 let (body_bytes, data) = body;
+                // Convert headers to a lowercase-keyed HashMap so handlers don't
+                // have to worry about case. Skips headers with non-UTF-8 values.
+                let mut headers = std::collections::HashMap::with_capacity(header_map.len());
+                for (k, v) in header_map.iter() {
+                    if let Ok(vs) = v.to_str() {
+                        headers.insert(k.as_str().to_lowercase(), vs.to_string());
+                    }
+                }
                 async move {
-                    Handler::post(path.as_str().to_string(), body_bytes, data, auth_header, connection_id, ip_address, router_clone).await
+                    Handler::post(path.as_str().to_string(), body_bytes, headers, data, auth_header, connection_id, ip_address, router_clone).await
                 }
             });
 

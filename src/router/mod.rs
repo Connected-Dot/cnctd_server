@@ -4,6 +4,7 @@ pub mod request;
 pub mod error;
 
 
+use std::collections::HashMap;
 use std::{future::Future, pin::Pin};
 use std::fmt::Debug;
 use bytes::Bytes;
@@ -42,11 +43,15 @@ where
         Box::pin(async { Ok(None) })
     }
 
-    /// Route a POST request with access to the **raw request body bytes** in
-    /// addition to the parsed Value. Use this for endpoints that need to
-    /// verify byte-exact signatures (Stripe webhooks, GitHub webhooks,
-    /// anything HMAC-signed over the body). The framework still parses the
-    /// body to a Value for convenience — implementations can use either.
+    /// Route a POST request with access to the **raw request body bytes**,
+    /// the **full request headers**, and the parsed Value. Use this for
+    /// endpoints that need to verify byte-exact signatures (Stripe webhooks
+    /// where the signature lives in `Stripe-Signature`, GitHub webhooks
+    /// where it lives in `X-Hub-Signature-256`, etc).
+    ///
+    /// Headers are passed as a HashMap with lowercase keys (HTTP headers
+    /// are case-insensitive) so handlers can do `headers.get("stripe-signature")`
+    /// without worrying about case.
     ///
     /// Tried BEFORE `route_binary` and `route` in the POST dispatch chain.
     /// Default impl returns `Ok(None)` so existing routers are unaffected.
@@ -56,6 +61,7 @@ where
         _path: String,
         _body_bytes: Bytes,
         _data: Value,
+        _headers: HashMap<String, String>,
         _auth_token: Option<String>,
         _connection_id: Option<String>,
         _ip_address: Option<String>,
