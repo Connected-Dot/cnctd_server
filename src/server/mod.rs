@@ -1,7 +1,7 @@
 pub mod server_info;
 pub mod handlers;
 
-use std::{fmt::Debug, sync::Arc, time::Duration};
+use std::{fmt::Debug, future::Future, pin::Pin, sync::Arc, time::Duration};
 
 // use async_graphql_warp::{graphql, GraphQLResponse};
 use local_ip_address::local_ip;
@@ -10,13 +10,27 @@ use serde_json::Value;
 use warp::{filters::path::FullPath, Filter};
 
 use crate::{
-    router::{RestRouterFunction, SocketRouterFunction}, server::server_info::{ServerInfo, SERVER_INFO}, socket::{CnctdSocket, SocketConfig}, utils::{cors, spa}
+    router::{RestRouterFunction, SocketRouterFunction}, server::server_info::{ServerInfo, SERVER_INFO}, socket::{CnctdSocket, SocketConfig}, utils::{cors, spa, spa_with_meta}
 };
 
 use self::handlers::{Handler, RedirectHandler};
 // use async_graphql::{self, http::GraphiQLSource, EmptySubscription, Schema};
 
 
+
+/// Extra `<head>` HTML for a page (non-file) request, chosen by the app from
+/// the request path — e.g. a shared link's title, description and preview
+/// image. `None` serves `index.html` unchanged.
+pub type PageMetaFn = Arc<dyn Fn(String) -> Pin<Box<dyn Future<Output = Option<String>> + Send>> + Send + Sync>;
+
+#[derive(Clone)]
+pub struct PageMeta(pub PageMetaFn);
+
+impl Debug for PageMeta {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PageMeta(..)")
+    }
+}
 
 #[derive(Debug)]
 pub struct ServerConfig<R> {
@@ -27,6 +41,7 @@ pub struct ServerConfig<R> {
     pub router: R,
     pub heartbeat: Option<Duration>,
     pub allowed_origins: Option<Vec<String>>,
+    pub page_meta: Option<PageMeta>,
 }
 
 impl<R> ServerConfig<R> {
@@ -39,7 +54,16 @@ impl<R> ServerConfig<R> {
             router,
             heartbeat: heartbeat.map(Duration::from_secs),
             allowed_origins,
+            page_meta: None,
         }
+    }
+
+    /// Let the app add `<head>` tags to the single-page app's `index.html`
+    /// per request path (read from disk on every page request, so a new
+    /// client build is still picked up live).
+    pub fn with_page_meta(mut self, page_meta: PageMetaFn) -> Self {
+        self.page_meta = Some(PageMeta(page_meta));
+        self
     }
 }
 
@@ -56,7 +80,10 @@ impl CnctdServer {
     {
         let server_router = Arc::new(server_config.router);
 
-        let web_app = spa(server_config.client_dir);
+        let web_app = match server_config.page_meta.clone() {
+            Some(PageMeta(meta)) => spa_with_meta(server_config.client_dir.clone(), meta),
+            None => spa(server_config.client_dir.clone()),
+        };
             
         let my_local_ip = local_ip()?;
         let ip_address: [u8; 4] = [0, 0, 0, 0];
