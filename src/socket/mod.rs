@@ -6,7 +6,7 @@ pub mod fanout;
 #[cfg(feature = "redis")]
 pub mod redis_fanout;
 
-use std::{future::Future, marker::PhantomData, net::SocketAddr, pin::Pin, sync::Arc};
+use std::{future::Future, marker::PhantomData, net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
 
 use axum::{
     extract::{
@@ -55,6 +55,11 @@ pub struct SocketConfig<R> {
     /// registered inline learns its `connection_id`. Off by default: the
     /// wire stays exactly 0.6 unless the app opts in.
     pub announce_connected: bool,
+    /// Send a WebSocket ping this often so idle connections survive proxies
+    /// that reset silent sockets (Cloudflare does so after ~100 s). Browsers
+    /// cannot send pings themselves and answer ours automatically. 30 s;
+    /// `None` turns it off.
+    pub keepalive: Option<Duration>,
 }
 
 impl<R> SocketConfig<R> {
@@ -67,7 +72,14 @@ impl<R> SocketConfig<R> {
             on_binary: None,
             path: "/ws".to_string(),
             announce_connected: false,
+            keepalive: Some(Duration::from_secs(30)),
         }
+    }
+
+    /// See [`SocketConfig::keepalive`].
+    pub fn with_keepalive(mut self, every: Option<Duration>) -> Self {
+        self.keepalive = every;
+        self
     }
 
     /// See [`SocketConfig::announce_connected`].
@@ -104,6 +116,7 @@ struct WsState<Req, Resp, R> {
     on_disconnect: Option<OnDisconnect>,
     on_binary: Option<OnBinaryHandler>,
     announce_connected: bool,
+    keepalive: Option<Duration>,
     _marker: PhantomData<fn() -> (Req, Resp)>,
 }
 
@@ -116,6 +129,7 @@ impl<Req, Resp, R> Clone for WsState<Req, Resp, R> {
             on_disconnect: self.on_disconnect.clone(),
             on_binary: self.on_binary.clone(),
             announce_connected: self.announce_connected,
+            keepalive: self.keepalive,
             _marker: PhantomData,
         }
     }
@@ -134,6 +148,7 @@ where
         on_disconnect: config.on_disconnect,
         on_binary: config.on_binary,
         announce_connected: config.announce_connected,
+        keepalive: config.keepalive,
         _marker: PhantomData,
     };
     Router::new().route(&config.path, get(upgrade::<Req, Resp, R>)).with_state(state)
@@ -235,6 +250,7 @@ where
             let frame = match out {
                 Outbound::Text(s) => Frame::Text(s.into()),
                 Outbound::Binary(b) => Frame::Binary(b.into()),
+                Outbound::Ping => Frame::Ping(Default::default()),
             };
             if ws_tx.send(frame).await.is_err() {
                 break;
@@ -244,7 +260,7 @@ where
 
     let router = state.router;
     let on_binary = state.on_binary;
-    let reply_tx = tx;
+    let reply_tx = tx.clone();
     let id_for_inbound = connection_id.clone();
     let inbound = async {
         while let Some(Ok(frame)) = ws_rx.next().await {
@@ -273,9 +289,27 @@ where
         }
     };
 
+    let keepalive_tx = tx.clone();
+    let keepalive = async {
+        match state.keepalive {
+            Some(every) => {
+                let mut tick = tokio::time::interval(every);
+                tick.tick().await; // the first tick is immediate
+                loop {
+                    tick.tick().await;
+                    if keepalive_tx.send(Outbound::Ping).is_err() {
+                        break;
+                    }
+                }
+            }
+            None => std::future::pending::<()>().await,
+        }
+    };
+
     tokio::select! {
         _ = outbound => {},
         _ = inbound => {},
+        _ = keepalive => {},
     }
 
     debug!(connection_id, "socket closed");

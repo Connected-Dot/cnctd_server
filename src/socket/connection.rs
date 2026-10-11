@@ -91,6 +91,8 @@ pub struct QueryParams {
 pub enum Outbound {
     Text(String),
     Binary(Vec<u8>),
+    /// A protocol-level ping; the peer answers with a pong on its own.
+    Ping,
 }
 
 pub type Sender = mpsc::UnboundedSender<Outbound>;

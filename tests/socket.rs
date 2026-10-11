@@ -74,6 +74,10 @@ async fn sock_with(heartbeat: Option<u64>, secret: Option<Vec<u8>>, path: Option
 }
 
 async fn sock_full(heartbeat: Option<u64>, secret: Option<Vec<u8>>, path: Option<&str>, announce: bool) -> Sock {
+    sock_opts(heartbeat, secret, path, announce, None).await
+}
+
+async fn sock_opts(heartbeat: Option<u64>, secret: Option<Vec<u8>>, path: Option<&str>, announce: bool, keepalive: Option<Duration>) -> Sock {
     let router = RecordingSocketRouter::default();
     let disconnects: Arc<Mutex<Vec<ConnectionInfo>>> = Default::default();
     let binaries: Binaries = Default::default();
@@ -96,6 +100,9 @@ async fn sock_full(heartbeat: Option<u64>, secret: Option<Vec<u8>>, path: Option
         socket = socket.with_path(p);
     }
     socket = socket.with_connected_announcement(announce);
+    if let Some(k) = keepalive {
+        socket = socket.with_keepalive(Some(k));
+    }
     let server = start(cfg, socket).await;
     Sock { server, router, disconnects, binaries }
 }
@@ -465,4 +472,38 @@ async fn no_announcement_by_default() {
     let s = sock().await;
     let mut ws = s.connect("subscriptions=quiet-hello").await;
     assert!(next_json(&mut ws, Duration::from_millis(400)).await.is_none(), "wire is exactly 0.6 unless opted in");
+}
+
+#[tokio::test]
+async fn server_pings_idle_connections_at_the_keepalive_interval() {
+    let s = sock_opts(None, None, None, false, Some(Duration::from_millis(300))).await;
+    let (_id, mut ws) = s.register_and_connect(&["idle"]).await;
+    let mut pings = 0;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    while pings < 2 && tokio::time::Instant::now() < deadline {
+        match tokio::time::timeout(Duration::from_secs(1), ws.next()).await {
+            Ok(Some(Ok(Frame::Ping(_)))) => pings += 1,
+            Ok(Some(Ok(other))) => panic!("unexpected frame on an idle connection: {:?}", other),
+            other => panic!("socket ended: {:?}", other.map(|_| ())),
+        }
+    }
+    assert_eq!(pings, 2, "two pings within two seconds at a 300 ms interval");
+    // ...and the connection is still routing afterwards.
+    send_json(&mut ws, json!({"channel": "echo", "data": "alive"})).await;
+    let reply = loop {
+        match next_frame_text(&mut ws).await {
+            Some(v) => break v,
+            None => continue,
+        }
+    };
+    assert_eq!(reply["echo"]["data"], json!("alive"));
+}
+
+/// Next text frame as JSON, skipping pings.
+async fn next_frame_text(ws: &mut Ws) -> Option<Value> {
+    match tokio::time::timeout(Duration::from_secs(2), ws.next()).await {
+        Ok(Some(Ok(Frame::Text(t)))) => Some(serde_json::from_str(t.as_str()).unwrap()),
+        Ok(Some(Ok(Frame::Ping(_)))) => None,
+        other => panic!("expected text: {:?}", other.map(|_| ())),
+    }
 }
