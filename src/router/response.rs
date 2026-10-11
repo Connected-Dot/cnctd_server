@@ -26,6 +26,12 @@ impl SuccessCode {
     pub fn status_code(&self) -> StatusCode {
         StatusCode::from_u16(self.as_u16()).expect("success codes are valid")
     }
+
+    /// 0.6 name for [`Self::status_code`]; kept so consumers compile.
+    #[deprecated(since = "1.0.0", note = "use status_code()")]
+    pub fn to_warp_status_code(&self) -> StatusCode {
+        self.status_code()
+    }
 }
 
 /// The JSON envelope every successful API call returns:

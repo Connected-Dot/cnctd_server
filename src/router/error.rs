@@ -33,6 +33,12 @@ impl ErrorCode {
         StatusCode::from_u16(self.as_u16()).expect("error codes are valid")
     }
 
+    /// 0.6 name for [`Self::status_code`]; kept so consumers compile.
+    #[deprecated(since = "1.0.0", note = "use status_code()")]
+    pub fn to_warp_status_code(&self) -> StatusCode {
+        self.status_code()
+    }
+
     pub fn from_status(status: StatusCode) -> Self {
         Self::from_u16(status.as_u16())
     }
