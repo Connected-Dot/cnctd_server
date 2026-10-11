@@ -10,6 +10,8 @@ keywords = ["module"]
 
 [features]
 default = []
+# Cross-instance push over Redis pub/sub (socket::redis_fanout::RedisFanout).
+redis = ["dep:redis"]
 
 [dependencies]
 anyhow = "1.0"
@@ -21,6 +23,7 @@ futures-util = "0.3"
 hmac = "0.12"
 jwt = "0.16"
 local-ip-address = "0.6"
+redis = { version = "1.0", features = ["tokio-comp"], optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_urlencoded = "0.7"

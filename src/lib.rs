@@ -28,3 +28,5 @@ pub use socket::{
     fanout::{Fanout, LocalOnly},
     SocketConfig,
 };
+#[cfg(feature = "redis")]
+pub use socket::redis_fanout::RedisFanout;

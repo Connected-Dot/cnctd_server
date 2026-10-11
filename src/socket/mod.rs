@@ -3,6 +3,8 @@
 
 pub mod connection;
 pub mod fanout;
+#[cfg(feature = "redis")]
+pub mod redis_fanout;
 
 use std::{future::Future, marker::PhantomData, net::SocketAddr, pin::Pin, sync::Arc};
 

@@ -62,6 +62,8 @@ Anything that is not a file under `client/dist` serves `index.html`.
   disconnect hook, heartbeat on `server-info`.
 - **Operations**: CORS with an origin list, body size limit, graceful
   shutdown (`CnctdServer::bind` returns a `RunningServer`), `tracing` logs.
+- **More than one instance**: feature `redis` fans pushes out over Redis
+  pub/sub; set `SocketConfig.redis_url` or pass a `RedisFanout`.
 
 Full reference: `CLAUDE.md`. Moving from 0.6: `MIGRATION.md`.
 

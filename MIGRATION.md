@@ -71,7 +71,10 @@ Some(socket_config))` are unchanged. New and optional:
 
 - `.with_max_body(bytes)` — request body limit (unlimited by default, as before)
 - `.with_public_ip("...")` — the heartbeat's `public_ip`; the crate no longer looks it up
-- `.with_fanout(Arc<dyn Fanout>)` — cross-instance push; default single instance
+- `.with_fanout(Arc<dyn Fanout>)` — cross-instance push; default single
+  instance. With the `redis` feature, `SocketConfig.redis_url` alone turns on
+  Redis pub/sub fan-out between instances that share a server id (0.6
+  accepted the url and only wrote connection records with it).
 - `.with_bind_addr(ip)` — default all interfaces, as before
 - `CnctdServer::start` now returns when the process gets SIGINT/SIGTERM,
   after a graceful shutdown. `start_with_shutdown(cfg, socket, signal)` takes

@@ -151,6 +151,7 @@ impl<R> ServerConfig<R> {
 pub struct RunningServer {
     addr: SocketAddr,
     connections: Connections,
+    fanout: Arc<dyn Fanout>,
     server_info: Arc<RwLock<ServerInfo>>,
     shutdown: Option<oneshot::Sender<()>>,
     serve_task: JoinHandle<std::io::Result<()>>,
@@ -184,6 +185,7 @@ impl RunningServer {
         if let Some(h) = self.heartbeat_task.take() {
             h.abort();
         }
+        self.fanout.shutdown();
         if let Some(tx) = self.shutdown.take() {
             let _ = tx.send(());
         }
@@ -204,6 +206,7 @@ impl Drop for RunningServer {
         if let Some(h) = self.heartbeat_task.take() {
             h.abort();
         }
+        self.fanout.shutdown();
         if let Some(tx) = self.shutdown.take() {
             let _ = tx.send(());
         }
@@ -248,9 +251,22 @@ impl CnctdServer {
     {
         let prefix = config.path.clone().unwrap_or_else(|| "api".to_string());
         let port: u16 = config.port.parse()?;
-        let fanout: Arc<dyn Fanout> = config.fanout.clone().unwrap_or_else(|| Arc::new(LocalOnly));
-        let connections = Connections::new(&config.id, fanout);
+        let fanout: Arc<dyn Fanout> = match config.fanout.clone() {
+            Some(f) => f,
+            None => match socket_config.as_ref().and_then(|s| s.redis_url.as_deref()) {
+                #[cfg(feature = "redis")]
+                Some(url) => Arc::new(crate::socket::redis_fanout::RedisFanout::connect(url, &config.id).await?),
+                #[cfg(not(feature = "redis"))]
+                Some(_) => {
+                    tracing::warn!("SocketConfig.redis_url set but the `redis` feature is off; running single-instance");
+                    Arc::new(LocalOnly)
+                }
+                None => Arc::new(LocalOnly),
+            },
+        };
+        let connections = Connections::new(&config.id, fanout.clone());
         connections.install_global();
+        fanout.attach(connections.clone()).await?;
 
         let listener = TcpListener::bind(SocketAddr::new(config.bind_addr, port)).await?;
         let addr = listener.local_addr()?;
@@ -330,6 +346,7 @@ impl CnctdServer {
         Ok(RunningServer {
             addr,
             connections,
+            fanout,
             server_info,
             shutdown: Some(shutdown_tx),
             serve_task,

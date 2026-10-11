@@ -54,6 +54,7 @@ src/
                       ConnectionFormat; CnctdConnection::* associated fns over
                       the global table (0.6-compatible API)
     fanout.rs         Fanout trait (cross-instance push), LocalOnly
+    redis_fanout.rs   RedisFanout (feature `redis`): pub/sub on one channel per server id
   auth/mod.rs         CnctdAuth: HS256 JWT sign/verify with a `sub` claim
   utils/mod.rs        client_ip (first X-Forwarded-For hop), lowercase_headers,
                       inject_head
@@ -74,9 +75,14 @@ MIGRATION.md          0.6 -> 1.0 for consumers
   write-preferring `RwLock` and froze the whole table whenever a writer
   queued behind a heartbeat.
 - **Local delivery is always done by `Connections`.** A `Fanout` only tells
-  other instances. `LocalOnly` is the default; a Redis implementation
-  publishes the `Envelope` and calls `Connections::deliver_local` for
-  envelopes whose `origin` is not its own session id.
+  other instances. `LocalOnly` is the default. `RedisFanout` (feature
+  `redis`) publishes each `Envelope` to `cnctd_server:fanout:<server id>`
+  and runs a subscriber (started by `Fanout::attach`) that calls
+  `Connections::deliver_local` for envelopes whose `origin` is not its own
+  session id. Turn it on with `ServerConfig::with_fanout(Arc::new(
+  RedisFanout::connect(url, id).await?))`, or just set
+  `SocketConfig.redis_url` with the feature enabled. Publishes during a Redis
+  outage fail and are logged; the subscriber reconnects with backoff.
 - **Lenient bodies.** POST/PUT bodies that are empty or not JSON route with
   `data = {}`; the raw bytes are always in `req.body`. GET/DELETE take their
   data from the query string (values are strings).
@@ -102,8 +108,9 @@ A registered connection that never opens is dropped after 10 s.
 ## Development
 
 ```bash
-cargo test                 # the behavioral suite + units (~12 s; one test waits out the 10 s grace)
-cargo clippy --all-targets
+cargo test                        # the behavioral suite + units (~12 s; one test waits out the 10 s grace)
+cargo test --features redis       # also tests/redis.rs against REDIS_URL (default redis://127.0.0.1:6379; skips if down)
+cargo clippy --all-targets --features redis
 ```
 
 ### Behavioral test suite (`tests/`)
@@ -118,6 +125,9 @@ shared state. The suite is the spec a consumer migration is checked against.
 - `tests/socket.rs` — upgrade rules, inline registration, token auth, routing,
   push (channel / user / connection / key-value, exclude), binary frames,
   disconnect hook, heartbeat, grace expiry, custom path, table isolation
+- `tests/redis.rs` (feature `redis`) — two instances on one channel: channel /
+  user / connection / key-value pushes cross, exclude holds, no self-redelivery,
+  `redis_url` alone enables it, shutdown stops the subscriber
 - `tests/global.rs` — the `CnctdConnection::*` / `Message::broadcast` /
   `CnctdSocket::broadcast_message` static API (one server per binary)
 - `tests/spa.rs` — files win, index fallback, `page_meta` injection, live

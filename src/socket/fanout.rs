@@ -10,6 +10,8 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
+use super::connection::Connections;
+
 /// Who a push is for.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum FanoutTarget {
@@ -43,6 +45,15 @@ pub struct Envelope {
 pub trait Fanout: Send + Sync + 'static {
     /// Tell other instances. Local connections were already served.
     async fn publish(&self, envelope: Envelope) -> anyhow::Result<()>;
+
+    /// Called once by the server with its table, before it serves. A remote
+    /// fan-out starts its subscriber here and delivers into `connections`.
+    async fn attach(&self, _connections: Connections) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    /// Called when the server shuts down.
+    fn shutdown(&self) {}
 
     /// `true` when there are no other instances to tell, which lets
     /// `Connections` report "no such connection" instead of guessing that
