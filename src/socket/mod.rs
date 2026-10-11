@@ -50,6 +50,11 @@ pub struct SocketConfig<R> {
     pub on_binary: Option<OnBinaryHandler>,
     /// Where the socket lives. `/ws`.
     pub path: String,
+    /// Push `{"channel":"socket","instruction":"connected","data":<ConnectionInfo>}`
+    /// as the first frame of every JSON-format connection, so a client that
+    /// registered inline learns its `connection_id`. Off by default: the
+    /// wire stays exactly 0.6 unless the app opts in.
+    pub announce_connected: bool,
 }
 
 impl<R> SocketConfig<R> {
@@ -61,7 +66,14 @@ impl<R> SocketConfig<R> {
             on_disconnect,
             on_binary: None,
             path: "/ws".to_string(),
+            announce_connected: false,
         }
+    }
+
+    /// See [`SocketConfig::announce_connected`].
+    pub fn with_connected_announcement(mut self, on: bool) -> Self {
+        self.announce_connected = on;
+        self
     }
 
     pub fn with_on_binary(mut self, handler: OnBinaryHandler) -> Self {
@@ -91,6 +103,7 @@ struct WsState<Req, Resp, R> {
     secret: Option<Vec<u8>>,
     on_disconnect: Option<OnDisconnect>,
     on_binary: Option<OnBinaryHandler>,
+    announce_connected: bool,
     _marker: PhantomData<fn() -> (Req, Resp)>,
 }
 
@@ -102,6 +115,7 @@ impl<Req, Resp, R> Clone for WsState<Req, Resp, R> {
             secret: self.secret.clone(),
             on_disconnect: self.on_disconnect.clone(),
             on_binary: self.on_binary.clone(),
+            announce_connected: self.announce_connected,
             _marker: PhantomData,
         }
     }
@@ -119,6 +133,7 @@ where
         secret: config.secret,
         on_disconnect: config.on_disconnect,
         on_binary: config.on_binary,
+        announce_connected: config.announce_connected,
         _marker: PhantomData,
     };
     Router::new().route(&config.path, get(upgrade::<Req, Resp, R>)).with_state(state)
@@ -201,6 +216,17 @@ where
         return;
     }
     debug!(connection_id, "socket open");
+
+    if state.announce_connected {
+        if let Ok(info) = connections.info(&connection_id).await {
+            if info.format == ConnectionFormat::Json {
+                let hello = Message::new("socket", "connected", Some(serde_json::to_value(&info).unwrap_or_default()));
+                if let Ok(s) = serde_json::to_string(&hello) {
+                    let _ = tx.send(Outbound::Text(s));
+                }
+            }
+        }
+    }
 
     let (mut ws_tx, mut ws_rx) = socket.split();
 

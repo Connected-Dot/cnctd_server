@@ -70,6 +70,10 @@ impl Sock {
 }
 
 async fn sock_with(heartbeat: Option<u64>, secret: Option<Vec<u8>>, path: Option<&str>) -> Sock {
+    sock_full(heartbeat, secret, path, false).await
+}
+
+async fn sock_full(heartbeat: Option<u64>, secret: Option<Vec<u8>>, path: Option<&str>, announce: bool) -> Sock {
     let router = RecordingSocketRouter::default();
     let disconnects: Arc<Mutex<Vec<ConnectionInfo>>> = Default::default();
     let binaries: Binaries = Default::default();
@@ -91,6 +95,7 @@ async fn sock_with(heartbeat: Option<u64>, secret: Option<Vec<u8>>, path: Option
     if let Some(p) = path {
         socket = socket.with_path(p);
     }
+    socket = socket.with_connected_announcement(announce);
     let server = start(cfg, socket).await;
     Sock { server, router, disconnects, binaries }
 }
@@ -436,4 +441,28 @@ async fn connection_data_blob_and_key_value_targeting() {
 
     c.update_authenticated(&id, true).await.unwrap();
     assert!(c.info(&id).await.unwrap().authenticated);
+}
+
+#[tokio::test]
+async fn connected_announcement_is_the_first_frame_when_opted_in() {
+    let s = sock_full(None, None, None, true).await;
+    // Inline registration: the client has no other way to learn its id.
+    let mut ws = s.connect("subscriptions=hello").await;
+    let frame = next_json(&mut ws, Duration::from_secs(2)).await.expect("connected frame");
+    assert_eq!(frame["channel"], json!("socket"));
+    assert_eq!(frame["instruction"], json!("connected"));
+    let id = frame["data"]["connection_id"].as_str().unwrap().to_string();
+    assert_eq!(frame["data"]["subscriptions"], json!(["hello"]));
+    assert!(s.conns().contains(&id).await);
+
+    // Binary-format connections are not told (their client speaks binary).
+    let mut bin = s.connect("subscriptions=hello&format=binary").await;
+    assert!(next_json(&mut bin, Duration::from_millis(400)).await.is_none());
+}
+
+#[tokio::test]
+async fn no_announcement_by_default() {
+    let s = sock().await;
+    let mut ws = s.connect("subscriptions=quiet-hello").await;
+    assert!(next_json(&mut ws, Duration::from_millis(400)).await.is_none(), "wire is exactly 0.6 unless opted in");
 }
