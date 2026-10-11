@@ -12,6 +12,9 @@ keywords = ["module"]
 default = []
 # Cross-instance push over Redis pub/sub (socket::redis_fanout::RedisFanout).
 redis = ["dep:redis"]
+# TypeScript definitions for the protocol types: `cargo test --features ts` writes them
+# (TS_RS_EXPORT_DIR, default ./bindings). See scripts/export-ts.sh.
+ts = ["dep:ts-rs"]
 
 [dependencies]
 anyhow = "1.0"
@@ -33,6 +36,7 @@ tokio = { version = "1", features = ["full"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["fs", "cors"] }
 tracing = "0.1"
+ts-rs = { version = "12", features = ["serde-json-impl", "chrono-impl", "no-serde-warnings"], optional = true }
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]

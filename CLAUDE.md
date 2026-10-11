@@ -110,8 +110,22 @@ A registered connection that never opens is dropped after 10 s.
 ```bash
 cargo test                        # the behavioral suite + units (~12 s; one test waits out the 10 s grace)
 cargo test --features redis       # also tests/redis.rs against REDIS_URL (default redis://127.0.0.1:6379; skips if down)
-cargo clippy --all-targets --features redis
+cargo clippy --all-targets --all-features
+scripts/export-ts.sh [out-dir]    # TypeScript definitions of the protocol types (feature `ts`, ts-rs)
 ```
+
+### Protocol types and the TypeScript client
+
+The wire types are defined once, here, and tagged `#[cfg_attr(feature = "ts",
+derive(ts_rs::TS), ts(export))]`: `HttpMethod`, `SuccessCode`,
+`SuccessResponse`, `ErrorCode`, `ErrorResponse`, `SocketResponse`, `Message`,
+`SocketMessage`, `UserMessage`, `UserSocketMessage`, `ConnectionFormat`,
+`ConnectionInfo`, `ServerInfo`, `ServerStatus`. `scripts/export-ts.sh` writes
+one `.ts` file per type (default `./bindings`, gitignored); the TypeScript
+client package (`modules/typescript/cnctd-server`) points it at its own
+`src/generated`. A new wire type gets the attribute; a renamed field shows up
+as a TS diff in the client. Serde attributes are honoured (`ConnectionFormat`
+is `"json" | "binary"`).
 
 ### Behavioral test suite (`tests/`)
 

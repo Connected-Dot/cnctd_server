@@ -26,7 +26,7 @@ fn redis_url() -> String {
 
 /// None when Redis is not reachable (the test then returns early).
 async fn redis_available() -> bool {
-    match redis::Client::open(redis_url()).and_then(|c| Ok(c)) {
+    match redis::Client::open(redis_url()) {
         Ok(client) => client.get_multiplexed_async_connection().await.is_ok(),
         Err(_) => false,
     }

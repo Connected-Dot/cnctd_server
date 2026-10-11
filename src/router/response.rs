@@ -9,6 +9,7 @@ use futures_util::Stream;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 pub enum SuccessCode {
     OK = 200,
@@ -29,6 +30,7 @@ impl SuccessCode {
 
 /// The JSON envelope every successful API call returns:
 /// `{"success": true, "status": "OK", "msg": ..., "data": ...}`.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SuccessResponse {
     pub success: bool,
@@ -226,6 +228,7 @@ impl fmt::Debug for Response {
 
 /// Reply shape for request/response over the WebSocket, keyed by the
 /// caller's `response_channel`.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SocketResponse {
     pub success: bool,

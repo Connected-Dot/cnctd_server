@@ -35,6 +35,7 @@ use super::fanout::{Envelope, Fanout, FanoutTarget, LocalOnly, Payload};
 use crate::router::message::Message;
 
 /// Wire format a connection expects for push messages.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ConnectionFormat {
@@ -53,6 +54,7 @@ impl ConnectionFormat {
 }
 
 /// A connection as the app sees it (and as it is pushed on `server-info`).
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ConnectionInfo {
     pub connection_id: String,

@@ -5,6 +5,7 @@ use std::fmt;
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorCode {
     BadRequest = 400,
@@ -60,6 +61,7 @@ impl ErrorCode {
 
 /// `{"success": false, "status": "BadRequest", "msg": ...}` with the HTTP
 /// status to match. Also a plain `std::error::Error`, so `?` works in routes.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ErrorResponse {
     pub success: bool,

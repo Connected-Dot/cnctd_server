@@ -8,6 +8,7 @@ use crate::socket::connection::Connections;
 
 /// What subscribers receive on a channel:
 /// `{"channel": ..., "instruction": ..., "data": ...}`.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct Message {
     pub channel: String,
@@ -15,6 +16,7 @@ pub struct Message {
     pub data: Option<Value>,
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct UserMessage {
     pub data_type: Option<String>,
@@ -22,6 +24,7 @@ pub struct UserMessage {
     pub user_id: String,
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct UserSocketMessage {
     pub receiver_id: String,
@@ -30,6 +33,7 @@ pub struct UserSocketMessage {
 
 /// What clients send: a channel, an optional instruction and data, and an
 /// optional `response_channel` for request/response over the socket.
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SocketMessage {
     pub channel: String,

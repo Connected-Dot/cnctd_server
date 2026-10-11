@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::socket::connection::ServerIdentity;
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ServerInfo {
     pub id: String,
@@ -28,6 +29,7 @@ pub struct ServerInfo {
     pub redis_active: bool,
 }
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 pub enum ServerStatus {
     Active,

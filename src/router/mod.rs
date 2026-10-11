@@ -15,6 +15,7 @@ pub use response::Response;
 
 use self::error::ErrorResponse;
 
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum HttpMethod {
     GET,
