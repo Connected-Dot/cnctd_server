@@ -1,170 +1,133 @@
 # CLAUDE.md - cnctd_server
 
-> This file provides context about the cnctd_server library for Claude to reference in conversations.
+> Context for Claude about the cnctd_server crate. 1.0 line (axum). The 0.6
+> line (warp) lives on `main` until cnctd.world has moved.
 
-## Project Summary
+## What it is
 
-**cnctd_server** is a Rust HTTP/WebSocket server framework built on top of [warp](https://github.com/seanmonstar/warp). It provides routing abstractions, response/error helpers, WebSocket client management, and Redis integration. This is the primary server framework used by cnctd.world and other Connected Dot projects.
+The HTTP + WebSocket framework behind cnctd.world's server and hub. The app
+implements two traits and hands them to `CnctdServer`:
 
-## Key Features
+- `RestRouter` — one `route(Request) -> Result<Response, ErrorResponse>` call
+  per HTTP request under the API prefix (`/api` by default) and under
+  `/redirect`. The framework does no routing beyond that: `req.path` is the
+  full path and the app dispatches on `req.resource_and_operation()`.
+- `SocketRouter<Req, Resp>` — one `route(msg, connection_id) -> Option<Resp>`
+  call per inbound text frame that parses as `Req`.
 
-- **REST Routing**: Trait-based HTTP routing with GET/POST/PUT/DELETE support
-- **WebSocket Support**: Full WebSocket handling with client management and pub/sub
-- **Response Helpers**: Macros for success and error responses (`success_data!`, `bad_request!`, etc.)
-- **Redis Integration**: Optional Redis-backed client state and pub/sub
-- **JWT Authentication**: Built-in JWT token handling via the `auth` module
-- **Server Info**: System information and server status utilities
+The framework provides: JSON envelopes built by the house macros, raw /
+binary / streaming / SSE responses, redirects, lenient body parsing, a
+single-page-app fallback with per-path `<head>` injection, CORS, a
+connection table with pub/sub push (channel, user, connection, key/value),
+inline WebSocket registration, JWT at upgrade, a `server-info` heartbeat,
+and graceful shutdown. Nothing in the public API names axum.
 
-## Architecture
-
-### Module Structure
+## Layout
 
 ```
 src/
-├── lib.rs           # Public exports
-├── router/
-│   ├── mod.rs       # HttpMethod enum, router traits
-│   ├── response.rs  # SuccessResponse, success_* macros
-│   ├── error.rs     # ErrorResponse, error_* macros
-│   ├── message.rs   # Message types for pub/sub
-│   └── request.rs   # Request handling utilities
-├── socket/
-│   ├── mod.rs       # CnctdSocket, WebSocket server
-│   └── client.rs    # CnctdClient, client management
-├── server/
-│   ├── mod.rs       # Server module exports
-│   ├── server_info.rs  # ServerInfo struct
-│   └── handlers.rs  # Warp handler builders
-├── auth/
-│   └── mod.rs       # JWT authentication helpers
-└── utils/
-    └── mod.rs       # General utilities
+  lib.rs              re-exports: Request, Response, RestRouter, SocketRouter,
+                      CnctdServer, ServerConfig, RunningServer, SocketConfig,
+                      Connections, CnctdConnection, Fanout, async_trait, Bytes
+  router/
+    mod.rs            HttpMethod, RestRouter, SocketRouter, NoSocketRouter
+    request.rs        Request (method, path, prefix, query, body, data, headers,
+                      auth_token, connection_id, ip_address) + bearer(),
+                      resource_and_operation()
+    response.rs       SuccessCode/SuccessResponse + success_* macros,
+                      BinaryResponse, SseEvent, Response enum
+                      (Json | Binary | Redirect | Stream | Sse), SocketResponse
+    error.rs          ErrorCode/ErrorResponse + bad_request!, not_found!, ...
+    message.rs        Message (channel/instruction/data) + broadcast()/to_user()
+  server/
+    mod.rs            ServerConfig (+ builders), CnctdServer::bind/start/
+                      start_with_shutdown/start_without_socket, RunningServer,
+                      heartbeat task
+    handlers.rs       the one API handler: build Request, call router, map Response
+    spa.rs            client dir -> files, else index.html with page_meta tags
+    cors.rs           allowed origins; Client-Id is in the allow-list
+    server_info.rs    ServerInfo (heartbeat payload)
+  socket/
+    mod.rs            SocketConfig, /ws upgrade rules, per-connection loop,
+                      CnctdSocket::broadcast_message (compat)
+    connection.rs     Connections (the table), CnctdConnection, ConnectionInfo,
+                      ConnectionFormat; CnctdConnection::* associated fns over
+                      the global table (0.6-compatible API)
+    fanout.rs         Fanout trait (cross-instance push), LocalOnly
+  auth/mod.rs         CnctdAuth: HS256 JWT sign/verify with a `sub` claim
+  utils/mod.rs        client_ip (first X-Forwarded-For hop), lowercase_headers,
+                      inject_head
+tests/                behavioral suite, see below
+MIGRATION.md          0.6 -> 1.0 for consumers
 ```
 
-### Core Types
+## Rules that hold the design together
 
-```rust
-// HTTP Methods
-pub enum HttpMethod {
-    GET, POST, PUT, DELETE
-}
+- **One table, no panics.** `Connections` is a plain cloneable handle. The
+  server creates one, hands it to the socket layer and heartbeat, and
+  installs it as the process default so `CnctdConnection::*`, `Message::
+  broadcast` and `CnctdSocket::broadcast_message` keep working. Those return
+  an error (not a panic) when no server runs. Multiple servers per process
+  are fine; the static API talks to the most recently started one.
+- **Never hold the table lock across a send or another lock.** Collect under
+  the guard, drop it, then act. 0.6 nested read guards on tokio's
+  write-preferring `RwLock` and froze the whole table whenever a writer
+  queued behind a heartbeat.
+- **Local delivery is always done by `Connections`.** A `Fanout` only tells
+  other instances. `LocalOnly` is the default; a Redis implementation
+  publishes the `Envelope` and calls `Connections::deliver_local` for
+  envelopes whose `origin` is not its own session id.
+- **Lenient bodies.** POST/PUT bodies that are empty or not JSON route with
+  `data = {}`; the raw bytes are always in `req.body`. GET/DELETE take their
+  data from the query string (values are strings).
+- **Macros expand to bare names.** `success_data!` etc. need
+  `SuccessResponse`, `SuccessCode`, `ErrorResponse`, `ErrorCode` in scope at
+  the call site. Thousands of call sites rely on this; do not change it.
+- **Logging is `tracing`.** No `println!`. Consumers pick the subscriber.
+- **No network at boot.** `public_ip` is whatever the app sets with
+  `with_public_ip`; the crate never looks it up.
 
-// Router trait for REST endpoints
-pub trait RestRouterFunction: Send + Sync + Clone {
-    fn route(
-        &self,
-        method: HttpMethod,
-        path: String,
-        data: Value,
-        auth_token: Option<String>,
-        client_id: Option<String>,
-        ip_address: Option<String>,
-    ) -> Pin<Box<dyn Future<Output = Result<SuccessResponse, ErrorResponse>> + Send>>;
-}
+## Upgrade rules for `/ws`
 
-// Router trait for WebSocket messages
-pub trait SocketRouterFunction<Req, Resp>: Send + Sync + Clone {
-    fn route(&self, msg: Req, client_id: String)
-        -> Pin<Box<dyn Future<Output = Option<Resp>> + Send>>;
-}
+| Query | Result |
+|---|---|
+| `connection_id=<registered>` | upgrade |
+| `connection_id=<unknown>` | 404 envelope, no upgrade |
+| `subscriptions=a,b[&format=binary]` | inline registration, upgrade |
+| neither | 400 envelope |
+| `&token=<jwt>` with a socket secret | sets `user_id` + `authenticated`; invalid token is 401 |
 
-// Response types
-pub struct SuccessResponse {
-    pub success: bool,
-    pub status: SuccessCode,  // OK, Created, Accepted, NoContent
-    pub msg: Option<String>,
-    pub data: Option<Value>,
-}
-
-pub struct ErrorResponse {
-    pub success: bool,
-    pub status: ErrorCode,  // BadRequest, Unauthorized, NotFound, etc.
-    pub msg: Option<String>,
-}
-```
-
-### Response Macros
-
-```rust
-// Success responses
-success_data!(json_value)           // 200 OK with data
-success_msg!("message")             // 200 OK with message
-created!("message", json_value)     // 201 Created
-
-// Error responses
-bad_request!("message")             // 400
-unauthorized!("message")            // 401
-forbidden!("message")               // 403
-not_found!("message")               // 404
-internal_server_error!("message")   // 500
-service_unavailable!("message")     // 503
-```
-
-### WebSocket Server
-
-```rust
-use cnctd_server::socket::{CnctdSocket, SocketConfig, CnctdClient};
-
-// Start WebSocket server
-CnctdSocket::start::<Request, Response, Router>(
-    "8080",
-    router,
-    Some(jwt_secret),
-    Some(redis_url),
-    Some(Arc::new(|client_info| { /* on disconnect */ })),
-).await?;
-
-// Or build routes to combine with HTTP
-let ws_routes = CnctdSocket::build_routes::<Request, Response, Router>(config);
-
-// Client management
-CnctdClient::add_client(client_id, user_id, auth_token).await?;
-CnctdClient::message_client(client_id, &message).await?;
-CnctdSocket::broadcast_message(&message).await?;
-```
-
-## Usage by cnctd.world
-
-cnctd.world imports cnctd_server throughout its codebase:
-
-```rust
-use cnctd_server::{
-    router::{HttpMethod, error::ErrorResponse, response::SuccessResponse},
-    socket::{CnctdSocket, client::CnctdClient},
-    bad_request, not_found, unauthorized, internal_server_error,
-    success_data, success_msg,
-};
-```
-
-**Integration Points:**
-- `router/resources/*.rs` - All REST endpoints use response macros
-- `router/socket.rs` - WebSocket handling via CnctdSocket
-- `router/mod.rs` - Implements RestRouterFunction trait
-
-## Dependencies
-
-- `warp` - HTTP server framework
-- `tokio` - Async runtime
-- `serde` / `serde_json` - Serialization
-- `cnctd_redis` - Redis client wrapper
-- `jwt` / `hmac` / `sha2` - JWT authentication
+A registered connection that never opens is dropped after 10 s.
 
 ## Development
 
 ```bash
-# Build
-cargo build
-
-# Test
-cargo test
-
-# Publish to crates.io
-cargo publish
+cargo test                 # the behavioral suite + units (~12 s; one test waits out the 10 s grace)
+cargo clippy --all-targets
 ```
+
+### Behavioral test suite (`tests/`)
+
+Every test starts its own server on an ephemeral loopback port
+(`CnctdServer::bind` with port `"0"`), so tests run in parallel with no
+shared state. The suite is the spec a consumer migration is checked against.
+
+- `tests/rest.rs` — the Request the router receives, every Response variant,
+  envelopes and status codes, lenient bodies, prefix, body limit, CORS,
+  405/404 envelopes, graceful shutdown, several servers per process
+- `tests/socket.rs` — upgrade rules, inline registration, token auth, routing,
+  push (channel / user / connection / key-value, exclude), binary frames,
+  disconnect hook, heartbeat, grace expiry, custom path, table isolation
+- `tests/global.rs` — the `CnctdConnection::*` / `Message::broadcast` /
+  `CnctdSocket::broadcast_message` static API (one server per binary)
+- `tests/spa.rs` — files win, index fallback, `page_meta` injection, live
+  index reload, 405 on non-GET pages, 404 without an index
+- `tests/units.rs` — path splitting, `Request::bearer`, JWT, macros, builders
+- `tests/common/mod.rs` — recording routers and `config()` / `start()` helpers
 
 ## Version
 
-Current version: **0.4.10**
+**1.0.0-alpha.1** on branch `feat/1.0-axum`. Consumers: see `MIGRATION.md`.
 
 ---
 

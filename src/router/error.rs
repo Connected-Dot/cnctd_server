@@ -1,17 +1,21 @@
+//! The JSON error envelope and the macros that build it.
+
 use std::fmt;
 
+use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
-use warp::http::StatusCode;
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorCode {
     BadRequest = 400,
     Unauthorized = 401,
     Forbidden = 403,
     NotFound = 404,
-    UnprocessableEntity = 422,
     MethodNotAllowed = 405,
     RequestTimeout = 408,
+    Conflict = 409,
+    PayloadTooLarge = 413,
+    UnprocessableEntity = 422,
     TooManyRequests = 429,
     InternalServerError = 500,
     BadGateway = 502,
@@ -20,41 +24,19 @@ pub enum ErrorCode {
 }
 
 impl ErrorCode {
-    pub fn to_warp_status_code(&self) -> StatusCode {
-        match self {
-            Self::BadRequest => StatusCode::BAD_REQUEST,
-            Self::Unauthorized => StatusCode::UNAUTHORIZED,
-            Self::Forbidden => StatusCode::FORBIDDEN,
-            Self::NotFound => StatusCode::NOT_FOUND,
-            Self::UnprocessableEntity => StatusCode::UNPROCESSABLE_ENTITY,
-            Self::MethodNotAllowed => StatusCode::METHOD_NOT_ALLOWED,
-            Self::RequestTimeout => StatusCode::REQUEST_TIMEOUT,
-            Self::TooManyRequests => StatusCode::TOO_MANY_REQUESTS,
-            Self::InternalServerError => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::BadGateway => StatusCode::BAD_GATEWAY,
-            Self::ServiceUnavailable => StatusCode::SERVICE_UNAVAILABLE,
-            Self::GatewayTimeout => StatusCode::GATEWAY_TIMEOUT,
-        }
+    pub fn as_u16(&self) -> u16 {
+        *self as u16
+    }
+
+    pub fn status_code(&self) -> StatusCode {
+        StatusCode::from_u16(self.as_u16()).expect("error codes are valid")
     }
 
     pub fn from_status(status: StatusCode) -> Self {
-        match status {
-            StatusCode::BAD_REQUEST => Self::BadRequest,
-            StatusCode::UNAUTHORIZED => Self::Unauthorized,
-            StatusCode::FORBIDDEN => Self::Forbidden,
-            StatusCode::NOT_FOUND => Self::NotFound,
-            StatusCode::UNPROCESSABLE_ENTITY => Self::UnprocessableEntity,
-            StatusCode::METHOD_NOT_ALLOWED => Self::MethodNotAllowed,
-            StatusCode::REQUEST_TIMEOUT => Self::RequestTimeout,
-            StatusCode::TOO_MANY_REQUESTS => Self::TooManyRequests,
-            StatusCode::INTERNAL_SERVER_ERROR => Self::InternalServerError,
-            StatusCode::BAD_GATEWAY => Self::BadGateway,
-            StatusCode::SERVICE_UNAVAILABLE => Self::ServiceUnavailable,
-            StatusCode::GATEWAY_TIMEOUT => Self::GatewayTimeout,
-            _ => Self::InternalServerError,
-        }
+        Self::from_u16(status.as_u16())
     }
 
+    /// Unknown codes become 500.
     pub fn from_u16(code: u16) -> Self {
         match code {
             400 => Self::BadRequest,
@@ -63,17 +45,21 @@ impl ErrorCode {
             404 => Self::NotFound,
             405 => Self::MethodNotAllowed,
             408 => Self::RequestTimeout,
+            409 => Self::Conflict,
+            413 => Self::PayloadTooLarge,
             422 => Self::UnprocessableEntity,
             429 => Self::TooManyRequests,
             500 => Self::InternalServerError,
             502 => Self::BadGateway,
             503 => Self::ServiceUnavailable,
+            504 => Self::GatewayTimeout,
             _ => Self::InternalServerError,
         }
     }
 }
 
-
+/// `{"success": false, "status": "BadRequest", "msg": ...}` with the HTTP
+/// status to match. Also a plain `std::error::Error`, so `?` works in routes.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ErrorResponse {
     pub success: bool,
@@ -82,9 +68,13 @@ pub struct ErrorResponse {
 }
 
 impl ErrorResponse {
+    /// No code means 404 — `not_found!` is the bare macro.
     pub fn new(error_code: Option<ErrorCode>, msg: Option<String>) -> Self {
-        let status = error_code.unwrap_or(ErrorCode::NotFound);
-        Self { success: false, status, msg }
+        Self {
+            success: false,
+            status: error_code.unwrap_or(ErrorCode::NotFound),
+            msg,
+        }
     }
 }
 
@@ -145,6 +135,13 @@ macro_rules! method_not_allowed {
 macro_rules! request_timeout {
     ($msg:expr) => {
         ErrorResponse::new(Some(ErrorCode::RequestTimeout), Some($msg.to_string()))
+    };
+}
+
+#[macro_export]
+macro_rules! conflict {
+    ($msg:expr) => {
+        ErrorResponse::new(Some(ErrorCode::Conflict), Some($msg.to_string()))
     };
 }
 

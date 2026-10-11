@@ -1,26 +1,24 @@
-use std::sync::Arc;
+//! What a server says about itself on the `server-info` heartbeat channel.
 
 use chrono::{DateTime, Utc};
-use cnctd_redis::CnctdRedis;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
-use state::InitCell;
-use tokio::sync::RwLock;
 
-use crate::{router::message::Message, socket::{CnctdSocket, CONNECTIONS}};
-
-pub static SERVER_INFO: InitCell<Arc<RwLock<ServerInfo>>> = InitCell::new();
+use crate::socket::connection::ServerIdentity;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ServerInfo {
     pub id: String,
     pub session_id: String,
     pub local_ip: String,
+    /// What the app said with `ServerConfig::with_public_ip`; empty otherwise.
+    /// (0.6 looked this up over the network at every boot.)
     pub public_ip: String,
     pub port: u16,
     pub last_heartbeat: DateTime<Utc>,
     pub start_time: DateTime<Utc>,
+    /// One-minute load average.
     pub cpu_usage: f32,
+    /// Percent of physical memory in use.
     pub memory_usage: f32,
     pub status: ServerStatus,
     pub max_connections: usize,
@@ -30,7 +28,7 @@ pub struct ServerInfo {
     pub redis_active: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
 pub enum ServerStatus {
     Active,
     Idle,
@@ -38,79 +36,45 @@ pub enum ServerStatus {
 }
 
 impl ServerInfo {
-    pub async fn new(id: &str, local_ip: &str, port: u16, max_connections: usize, websocket: bool, redis_url: Option<String>) -> Arc<RwLock<Self>> {
-        let session_id = uuid::Uuid::new_v4();
-        let public_ip = match public_ip::addr().await {
-            Some(ip) => ip.to_string(),
-            None => "".to_string(),
-        };
-        let server_info = Self {
-            id: id.into(),
-            session_id: session_id.to_string(),
-            local_ip: local_ip.into(),
-            public_ip,
+    pub fn new(
+        identity: &ServerIdentity,
+        local_ip: &str,
+        public_ip: Option<String>,
+        port: u16,
+        websocket: bool,
+        redis_url: Option<String>,
+    ) -> Self {
+        Self {
+            id: identity.id.clone(),
+            session_id: identity.session_id.clone(),
+            local_ip: local_ip.to_string(),
+            public_ip: public_ip.unwrap_or_default(),
             port,
             last_heartbeat: Utc::now(),
             start_time: Utc::now(),
             cpu_usage: 0.0,
             memory_usage: 0.0,
             status: ServerStatus::Active,
-            max_connections,
+            max_connections: 100,
             current_connections: 0,
             websocket,
             redis_url,
             redis_active: false,
-        };
-        Arc::new(RwLock::new(server_info))
-    }
-
-    pub async fn update() -> anyhow::Result<()> {
-        let server_info = SERVER_INFO.get().clone();
-        let mut server_info = server_info.write().await;
-        
-        server_info.last_heartbeat = Utc::now();
-
-        sys_info::cpu_num().map(|cpu| {
-            server_info.cpu_usage = cpu as f32;
-        })?;
-        sys_info::mem_info().map(|mem| {
-            server_info.memory_usage = mem.total as f32;
-        })?;
-
-        if server_info.websocket {
-            let connections = CONNECTIONS.get().read().await;
-            server_info.current_connections = connections.len();
-            let msg = Message::new("server-info", "heartbeat", Some(json!(server_info.clone())));
-            CnctdSocket::broadcast_message(&msg).await?;
         }
-        
-        if server_info.redis_url.is_some() && server_info.redis_active {
-            CnctdRedis::hset("server_info", &server_info.id, server_info.clone())?;
+    }
+
+    /// Refresh the heartbeat fields.
+    pub fn refresh(&mut self, current_connections: usize) {
+        self.last_heartbeat = Utc::now();
+        self.current_connections = current_connections;
+        if let Ok(load) = sys_info::loadavg() {
+            self.cpu_usage = load.one as f32;
         }
-
-        Ok(())
+        if let Ok(mem) = sys_info::mem_info() {
+            if mem.total > 0 {
+                let used = mem.total.saturating_sub(mem.avail) as f32;
+                self.memory_usage = used / mem.total as f32 * 100.0;
+            }
+        }
     }
-
-    pub fn get() -> Arc<RwLock<ServerInfo>> {
-        SERVER_INFO.get().clone()
-    }
-
-    pub async fn get_server_id() -> String {
-        SERVER_INFO.get().read().await.id.clone()
-    }
-    
-    pub async fn get_server_and_session_id() -> (String, String) {
-        let server_info = SERVER_INFO.get().clone();
-        let server_info = server_info.read().await;
-        
-        (server_info.id.clone(), server_info.session_id.clone())
-    }
-
-    pub async fn set_redis_active(active: bool) {
-        let server_info = SERVER_INFO.get().clone();
-        let mut server_info = server_info.write().await;
-        
-        server_info.redis_active = active;
-    }
-    
 }
