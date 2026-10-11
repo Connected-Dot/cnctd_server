@@ -7,7 +7,7 @@ the public API does not expose it.
 
 ```toml
 [dependencies]
-cnctd_server = "1.0.0-alpha.1"
+cnctd_server = "1.0.0-alpha.2"
 ```
 
 ## Quick start
@@ -64,8 +64,8 @@ Anything that is not a file under `client/dist` serves `index.html`.
   shutdown (`CnctdServer::bind` returns a `RunningServer`), `tracing` logs.
 - **More than one instance**: feature `redis` fans pushes out over Redis
   pub/sub; set `SocketConfig.redis_url` or pass a `RedisFanout`.
-- **TypeScript types**: feature `ts` + `scripts/export-ts.sh` emit `.d.ts`-style
-  definitions of every wire type for the client package.
+- **One wire contract**: the types are the `cnctd_protocol` crate, shared with
+  `cnctd_client` and generated into the `cnctd-server` npm package.
 
 Full reference: `CLAUDE.md`. Moving from 0.6: `MIGRATION.md`.
 

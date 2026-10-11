@@ -336,6 +336,19 @@ async fn unsupported_method_under_api_is_405_json() {
 }
 
 #[tokio::test]
+async fn head_is_served_as_get_without_a_body() {
+    let router = RecordingRouter::default();
+    let s = start_rest(config("rest", router.clone())).await;
+    let resp = http().head(format!("{}/api/echo/head?x=1", s.url())).send().await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert!(resp.headers()["content-type"].to_str().unwrap().starts_with("application/json"));
+    assert_eq!(resp.bytes().await.unwrap().len(), 0, "no body on HEAD");
+    let call = &router.calls_for("/api/echo/head")[0];
+    assert_eq!(call.method, cnctd_server::HttpMethod::GET);
+    assert_eq!(call.query, json!({"x": "1"}));
+}
+
+#[tokio::test]
 async fn unknown_path_without_client_dir_is_404_json() {
     let s = start_rest(config("rest", RecordingRouter::default())).await;
     let (status, body) = envelope(http().get(format!("{}/anything/at/all", s.url())).send().await.unwrap()).await;

@@ -17,3 +17,6 @@ Cargo.lock
 
 # ts-rs output (cargo test --features ts); the TS package copies from here
 bindings/
+
+# local [patch] config
+.cargo/

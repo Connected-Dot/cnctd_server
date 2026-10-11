@@ -6,58 +6,14 @@ pub mod message;
 pub mod request;
 pub mod response;
 
-use std::fmt;
-
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 
 pub use request::Request;
 pub use response::Response;
 
 use self::error::ErrorResponse;
 
-#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum HttpMethod {
-    GET,
-    POST,
-    PUT,
-    DELETE,
-}
-
-impl HttpMethod {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::GET => "GET",
-            Self::POST => "POST",
-            Self::PUT => "PUT",
-            Self::DELETE => "DELETE",
-        }
-    }
-
-    /// The methods the API prefix answers. Anything else is a 405.
-    pub fn from_http(method: &axum::http::Method) -> Option<Self> {
-        use axum::http::Method;
-        match *method {
-            Method::GET => Some(Self::GET),
-            Method::POST => Some(Self::POST),
-            Method::PUT => Some(Self::PUT),
-            Method::DELETE => Some(Self::DELETE),
-            _ => None,
-        }
-    }
-
-    /// GET and DELETE carry their data in the query string; POST and PUT in
-    /// the body.
-    pub fn has_body(&self) -> bool {
-        matches!(self, Self::POST | Self::PUT)
-    }
-}
-
-impl fmt::Display for HttpMethod {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
+pub use cnctd_protocol::HttpMethod;
 
 /// The app's HTTP router. One call per request under the API prefix (default
 /// `/api`) and under `/redirect`; the framework does no routing of its own

@@ -26,7 +26,7 @@ use std::{
 
 use anyhow::anyhow;
 use chrono::{DateTime, FixedOffset, Utc};
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, RwLock};
 use tracing::{debug, warn};
@@ -34,57 +34,10 @@ use tracing::{debug, warn};
 use super::fanout::{Envelope, Fanout, FanoutTarget, LocalOnly, Payload};
 use crate::router::message::Message;
 
-/// Wire format a connection expects for push messages.
-#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum ConnectionFormat {
-    #[default]
-    Json,
-    Binary,
-}
+pub use cnctd_protocol::connection::{ConnectionFormat, ConnectionInfo, UpgradeQuery};
 
-impl ConnectionFormat {
-    pub fn from_str_opt(s: Option<&str>) -> Self {
-        match s {
-            Some("binary") => Self::Binary,
-            _ => Self::Json,
-        }
-    }
-}
-
-/// A connection as the app sees it (and as it is pushed on `server-info`).
-#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ConnectionInfo {
-    pub connection_id: String,
-    pub user_id: String,
-    pub ip_address: Option<String>,
-    pub authenticated: bool,
-    pub subscriptions: Vec<String>,
-    pub format: ConnectionFormat,
-    pub data: Value,
-    pub connected: bool,
-    pub server_id: String,
-    pub server_session_id: String,
-    pub created_at: DateTime<FixedOffset>,
-    pub updated_at: DateTime<FixedOffset>,
-}
-
-/// Query string of the WebSocket upgrade.
-#[derive(Debug, Deserialize)]
-pub struct QueryParams {
-    /// A connection id from a prior REST registration.
-    pub connection_id: Option<String>,
-    /// Comma-separated channels: registers inline, for clients with no HTTP
-    /// step (ESP32 and friends).
-    pub subscriptions: Option<String>,
-    /// `json` (default) or `binary`.
-    pub format: Option<String>,
-    /// A JWT (see [`crate::auth::CnctdAuth`]); when the socket has a secret,
-    /// a valid token sets `user_id` and `authenticated` at upgrade.
-    pub token: Option<String>,
-}
+/// 0.6 name for [`UpgradeQuery`].
+pub type QueryParams = UpgradeQuery;
 
 /// A frame queued for a connection's socket task.
 #[derive(Debug, Clone)]

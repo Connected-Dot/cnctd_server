@@ -272,7 +272,7 @@ impl CnctdServer {
         let addr = listener.local_addr()?;
         let local = local_ip().map(|ip| ip.to_string()).unwrap_or_else(|_| "127.0.0.1".to_string());
 
-        let server_info = Arc::new(RwLock::new(ServerInfo::new(
+        let server_info = Arc::new(RwLock::new(server_info::new_server_info(
             connections.identity(),
             &local,
             config.public_ip.clone(),
@@ -324,7 +324,7 @@ impl CnctdServer {
                     let count = connections.count().await;
                     let snapshot = {
                         let mut info = server_info.write().await;
-                        info.refresh(count);
+                        server_info::refresh(&mut info, count);
                         info.clone()
                     };
                     let msg = Message::new("server-info", "heartbeat", Some(json!(snapshot)));

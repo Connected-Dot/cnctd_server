@@ -53,7 +53,10 @@ pub(crate) async fn api<R: RestRouter>(
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
     req: HttpRequest,
 ) -> HttpResponse {
-    let Some(method) = HttpMethod::from_http(req.method()) else {
+    // HEAD is answered like GET (the body is dropped on the way out), so
+    // health checks and link previews that use HEAD work.
+    let http_method = if req.method() == axum::http::Method::HEAD { axum::http::Method::GET } else { req.method().clone() };
+    let Some(method) = HttpMethod::from_http(&http_method) else {
         return error(ErrorResponse::new(
             Some(ErrorCode::MethodNotAllowed),
             Some(format!("{} is not served under /{}", req.method(), state.prefix)),

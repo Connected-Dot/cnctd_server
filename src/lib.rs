@@ -16,6 +16,15 @@ pub mod server;
 pub mod socket;
 pub mod utils;
 
+/// The wire types, shared with every client. Also re-exported at the 0.6
+/// paths below (`router::response`, `router::error`, ...).
+pub use cnctd_protocol;
+/// The envelope macros, usable as `cnctd_server::bad_request!` etc.
+pub use cnctd_protocol::{
+    bad_gateway, bad_request, conflict, created, error_response, forbidden, internal_server_error,
+    method_not_allowed, not_found, request_timeout, service_unavailable, success_data, success_msg,
+    success_response, too_many_requests, unauthorized,
+};
 /// Routers are written with `#[cnctd_server::async_trait]`.
 pub use async_trait::async_trait;
 /// Raw request bodies are handed over as `Bytes`.

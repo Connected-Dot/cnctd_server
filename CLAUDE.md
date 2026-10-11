@@ -1,7 +1,8 @@
 # CLAUDE.md - cnctd_server
 
 > Context for Claude about the cnctd_server crate. 1.0 line (axum). The 0.6
-> line (warp) lives on `main` until cnctd.world has moved.
+> line (warp) lives on `main` until cnctd.world has moved. The wire types are
+> the separate `cnctd_protocol` crate (`../cnctd_protocol`), re-exported here.
 
 ## What it is
 
@@ -28,17 +29,19 @@ and graceful shutdown. Nothing in the public API names axum.
 src/
   lib.rs              re-exports: Request, Response, RestRouter, SocketRouter,
                       CnctdServer, ServerConfig, RunningServer, SocketConfig,
-                      Connections, CnctdConnection, Fanout, async_trait, Bytes
+                      Connections, CnctdConnection, Fanout, async_trait, Bytes,
+                      cnctd_protocol and its envelope macros
   router/
-    mod.rs            HttpMethod, RestRouter, SocketRouter, NoSocketRouter
+    mod.rs            RestRouter, SocketRouter, NoSocketRouter; HttpMethod (protocol)
     request.rs        Request (method, path, prefix, query, body, data, headers,
                       auth_token, connection_id, ip_address) + bearer(),
                       resource_and_operation()
-    response.rs       SuccessCode/SuccessResponse + success_* macros,
-                      BinaryResponse, SseEvent, Response enum
-                      (Json | Binary | Redirect | Stream | Sse), SocketResponse
-    error.rs          ErrorCode/ErrorResponse + bad_request!, not_found!, ...
-    message.rs        Message (channel/instruction/data) + broadcast()/to_user()
+    response.rs       BinaryResponse, SseEvent, Response enum
+                      (Json | Binary | Redirect | Stream | Sse); SuccessCode /
+                      SuccessResponse / SocketResponse re-exported from protocol
+    error.rs          ErrorCode / ErrorResponse re-exported from protocol
+    message.rs        Message & co re-exported from protocol; `Push` trait adds
+                      broadcast() / to_user() on the running server
   server/
     mod.rs            ServerConfig (+ builders), CnctdServer::bind/start/
                       start_with_shutdown/start_without_socket, RunningServer,
@@ -46,21 +49,27 @@ src/
     handlers.rs       the one API handler: build Request, call router, map Response
     spa.rs            client dir -> files, else index.html with page_meta tags
     cors.rs           allowed origins; Client-Id is in the allow-list
-    server_info.rs    ServerInfo (heartbeat payload)
+    server_info.rs    fills cnctd_protocol::ServerInfo (heartbeat payload)
   socket/
     mod.rs            SocketConfig, /ws upgrade rules, per-connection loop,
                       CnctdSocket::broadcast_message (compat)
-    connection.rs     Connections (the table), CnctdConnection, ConnectionInfo,
-                      ConnectionFormat; CnctdConnection::* associated fns over
-                      the global table (0.6-compatible API)
+    connection.rs     Connections (the table), CnctdConnection; ConnectionInfo,
+                      ConnectionFormat, UpgradeQuery (alias QueryParams) from
+                      protocol; CnctdConnection::* associated fns over the
+                      global table (0.6-compatible API)
     fanout.rs         Fanout trait (cross-instance push), LocalOnly
     redis_fanout.rs   RedisFanout (feature `redis`): pub/sub on one channel per server id
   auth/mod.rs         CnctdAuth: HS256 JWT sign/verify with a `sub` claim
   utils/mod.rs        client_ip (first X-Forwarded-For hop), lowercase_headers,
                       inject_head
 tests/                behavioral suite, see below
+examples/demo_server  the server the TypeScript / Rust clients test against
 MIGRATION.md          0.6 -> 1.0 for consumers
 ```
+
+Local builds use `.cargo/config.toml` (gitignored) to `[patch.crates-io]`
+`cnctd_protocol` to the sibling checkout until the version in Cargo.toml is
+published; `cargo publish` needs it on crates.io first.
 
 ## Rules that hold the design together
 
@@ -111,21 +120,14 @@ A registered connection that never opens is dropped after 10 s.
 cargo test                        # the behavioral suite + units (~12 s; one test waits out the 10 s grace)
 cargo test --features redis       # also tests/redis.rs against REDIS_URL (default redis://127.0.0.1:6379; skips if down)
 cargo clippy --all-targets --all-features
-scripts/export-ts.sh [out-dir]    # TypeScript definitions of the protocol types (feature `ts`, ts-rs)
 ```
 
 ### Protocol types and the TypeScript client
 
-The wire types are defined once, here, and tagged `#[cfg_attr(feature = "ts",
-derive(ts_rs::TS), ts(export))]`: `HttpMethod`, `SuccessCode`,
-`SuccessResponse`, `ErrorCode`, `ErrorResponse`, `SocketResponse`, `Message`,
-`SocketMessage`, `UserMessage`, `UserSocketMessage`, `ConnectionFormat`,
-`ConnectionInfo`, `ServerInfo`, `ServerStatus`. `scripts/export-ts.sh` writes
-one `.ts` file per type (default `./bindings`, gitignored); the TypeScript
-client package (`modules/typescript/cnctd-server`) points it at its own
-`src/generated`. A new wire type gets the attribute; a renamed field shows up
-as a TS diff in the client. Serde attributes are honoured (`ConnectionFormat`
-is `"json" | "binary"`).
+Every wire type lives in `cnctd_protocol` with a ts-rs derive behind its `ts`
+feature; `cnctd_protocol/scripts/export-ts.sh` writes the TypeScript, and the
+`cnctd-server` npm package (`modules/typescript/cnctd-server`) syncs from it.
+A new wire type goes in that crate, never here.
 
 ### Behavioral test suite (`tests/`)
 
@@ -151,7 +153,7 @@ shared state. The suite is the spec a consumer migration is checked against.
 
 ## Version
 
-**1.0.0-alpha.1** on branch `feat/1.0-axum`. Consumers: see `MIGRATION.md`.
+**1.0.0-alpha.2** on branch `feat/1.0-axum` (alpha.1 is on crates.io). Consumers: see `MIGRATION.md`.
 
 ---
 

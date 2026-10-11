@@ -8,7 +8,7 @@ mod common;
 use std::{sync::OnceLock, time::Duration};
 
 use cnctd_server::{
-    router::message::Message,
+    router::message::{Message, Push},
     socket::{connection::CnctdConnection, CnctdSocket, ConnectionFormat},
     SocketConfig,
 };

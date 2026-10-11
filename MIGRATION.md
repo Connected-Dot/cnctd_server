@@ -109,7 +109,17 @@ would rather hold a handle than call statics.
 | `println!` everywhere | `tracing` |
 | `ErrorCode::from_u16(504)` was `InternalServerError` | `GatewayTimeout`; `Conflict` (409) and `PayloadTooLarge` (413) added |
 
-## 6. Removed
+## 6. The wire types are their own crate
+
+Since 1.0.0-alpha.2 the envelopes, macros, socket shapes, `ConnectionInfo`,
+`ServerInfo` and `HttpMethod` live in `cnctd_protocol`, re-exported by
+`cnctd_server` at every 0.6 path, so nothing in a server changes. Code that is
+only a client (the hub's world link, the Car Thing) depends on
+`cnctd_protocol` or `cnctd_client` and never compiles the server.
+`Message::broadcast()` / `Message::to_user()` now come from the
+`cnctd_server::router::message::Push` trait; import it where you call them.
+
+## 7. Removed
 
 `RestRouterFunction`, `SocketRouterFunction`, `Handler`, `RedirectHandler`,
 `CnctdServer::start_redirect`, `CnctdSocket::start`/`build_routes`,
