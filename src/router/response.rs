@@ -10,7 +10,7 @@ use serde::Serialize;
 
 pub use cnctd_protocol::response::{SocketResponse, SuccessCode, SuccessResponse};
 
-/// A non-envelope body: whatever bytes with whatever content type. For
+/// A non-envelope body: bytes with a content type. For
 /// protocols that bring their own framing (MCP JSON-RPC, files, images).
 #[derive(Debug, Clone)]
 pub struct BinaryResponse {

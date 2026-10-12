@@ -125,9 +125,9 @@ impl RestRouter for RecordingRouter {
             "/api/status/accepted" => Ok(SuccessResponse::new(Some(SuccessCode::Accepted), None, None).into()),
             "/api/status/msg" => Ok(SuccessResponse::new(None, Some("just a message".into()), None).into()),
             "/api/fail/bad-request" => Err(ErrorResponse::new(Some(ErrorCode::BadRequest), Some("missing thing".into()))),
-            "/api/fail/unauthorized" => Err(ErrorResponse::new(Some(ErrorCode::Unauthorized), Some("who are you".into()))),
+            "/api/fail/unauthorized" => Err(ErrorResponse::new(Some(ErrorCode::Unauthorized), Some("a token is required".into()))),
             "/api/fail/conflict" => Err(ErrorResponse::new(Some(ErrorCode::Conflict), Some("already".into()))),
-            "/api/fail/internal" => Err(ErrorResponse::new(Some(ErrorCode::InternalServerError), Some("boom".into()))),
+            "/api/fail/internal" => Err(ErrorResponse::new(Some(ErrorCode::InternalServerError), Some("internal failure".into()))),
             "/api/fail/default" => Err(ErrorResponse::new(None, Some("nothing here".into()))),
             _ => Err(ErrorResponse::new(Some(ErrorCode::NotFound), Some(format!("unrouted: {}", path)))),
         }
@@ -175,7 +175,7 @@ pub async fn start(config: ServerConfig<RecordingRouter>, socket: SocketConfig<R
 }
 
 /// A reqwest client that does not follow redirects (so tests can read the
-/// 302 the framework emits) and has no proxy surprises.
+/// 302 the framework emits) and ignores proxy settings.
 pub fn http() -> reqwest::Client {
     reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())

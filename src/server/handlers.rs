@@ -81,7 +81,7 @@ pub(crate) async fn api<R: RestRouter>(
         }
     };
 
-    // Lenient on purpose: webhooks post bodies that are not JSON, and clients
+    // Deliberately lenient: webhooks post bodies that are not JSON, and clients
     // POST without a body for simple operations. Both route with data = {}.
     let data = if method.has_body() {
         if body.is_empty() {

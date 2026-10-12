@@ -99,7 +99,7 @@ published; `cargo publish` needs it on crates.io first.
   `SuccessResponse`, `SuccessCode`, `ErrorResponse`, `ErrorCode` in scope at
   the call site. Thousands of call sites rely on this; do not change it.
 - **Logging is `tracing`.** No `println!`. Consumers pick the subscriber.
-- **No network at boot.** `public_ip` is whatever the app sets with
+- **No network at boot.** `public_ip` is what the app sets with
   `with_public_ip`; the crate never looks it up.
 
 ## Upgrade rules for `/ws`

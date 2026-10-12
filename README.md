@@ -30,7 +30,7 @@ impl RestRouter for MyRouter {
             (HttpMethod::GET, "hello", Some(name)) => Ok(success_data!(json!({"hello": name})).into()),
             (HttpMethod::POST, "echo", _) => Ok(success_data!(req.data).into()),
             (_, "download", _) => Ok(cnctd_server::router::response::BinaryResponse::octet_stream(req.body.to_vec()).into()),
-            (_, "", _) => Err(bad_request!("say something")),
+            (_, "", _) => Err(bad_request!("a resource is required")),
             _ => Err(not_found!(format!("no {}", req.path))),
         }
     }
@@ -43,7 +43,7 @@ async fn main() -> anyhow::Result<()> {
 }
 ```
 
-`GET /api/hello/kyle` → `{"success":true,"status":"OK","msg":null,"data":{"hello":"kyle"}}`.
+`GET /api/hello/world` → `{"success":true,"status":"OK","msg":null,"data":{"hello":"world"}}`.
 Anything that is not a file under `client/dist` serves `index.html`.
 
 ## What you get
