@@ -228,7 +228,7 @@ async fn token_at_upgrade_authenticates_the_connection() {
     assert!(info.authenticated);
 
     let id2 = s.conns().register(vec![], None, ConnectionFormat::Json).await;
-    let err = connect_async(s.ws_url(&format!("connection_id={}&token=garbage", id2))).await.err().unwrap();
+    let err = connect_async(s.ws_url(&format!("connection_id={}&token=invalid", id2))).await.err().unwrap();
     assert_eq!(upgrade_status(err), 401);
 }
 

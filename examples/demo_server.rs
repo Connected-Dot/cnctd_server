@@ -38,7 +38,7 @@ impl RestRouter for Rest {
                 "ip_address": req.ip_address,
             }))
             .into()),
-            ("fail", Some("bad-request")) => Err(bad_request!("you asked for it")),
+            ("fail", Some("bad-request")) => Err(bad_request!("requested failure")),
             ("fail", Some("unauthorized")) => Err(unauthorized!("no token")),
             ("bin", _) => Ok(BinaryResponse::octet_stream(b"BIN".to_vec()).into()),
             ("connections", Some("register")) => {

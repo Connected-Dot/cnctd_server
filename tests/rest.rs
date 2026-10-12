@@ -104,7 +104,7 @@ async fn post_with_unparseable_body_is_lenient() {
     let s = start_rest(config("rest", RecordingRouter::default())).await;
     let (status, body) = envelope(
         http()
-            .post(format!("{}/api/echo/post-garbage", s.url()))
+            .post(format!("{}/api/echo/post-invalid", s.url()))
             .header("Content-Type", "text/plain")
             .body("this is <not> json")
             .send()
@@ -394,12 +394,12 @@ async fn preflight_from_other_origin_is_not_allowed() {
     let s = start_rest(restricted()).await;
     let resp = http()
         .request(reqwest::Method::OPTIONS, format!("{}/api/echo/cors2", s.url()))
-        .header("Origin", "http://evil.test")
+        .header("Origin", "http://other.test")
         .header("Access-Control-Request-Method", "POST")
         .send()
         .await
         .unwrap();
-    assert!(resp.headers().get("access-control-allow-origin").is_none(), "no allow-origin for a stranger");
+    assert!(resp.headers().get("access-control-allow-origin").is_none(), "no allow-origin for an origin outside the list");
 }
 
 #[tokio::test]
@@ -413,7 +413,7 @@ async fn simple_request_from_allowed_origin_gets_allow_origin_header() {
 #[tokio::test]
 async fn unconfigured_origins_allow_any() {
     let s = start_rest(config("rest", RecordingRouter::default())).await;
-    let resp = http().get(format!("{}/api/echo/cors-any", s.url())).header("Origin", "http://whoever.test").send().await.unwrap();
+    let resp = http().get(format!("{}/api/echo/cors-any", s.url())).header("Origin", "http://any.test").send().await.unwrap();
     assert_eq!(resp.headers()["access-control-allow-origin"], "*");
 }
 
