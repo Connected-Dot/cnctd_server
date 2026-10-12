@@ -1,6 +1,6 @@
 [package]
 name = "cnctd_server"
-version = "0.6.5"
+version = "0.6.6"
 edition = "2021"
 authors = ["Connected Dot Inc.", "Kyle Ebner <kyle@cnctd.world>"]
 description = "Collection of server APIs"
@@ -35,3 +35,11 @@ tokio = { version = "1.48.0", features = ["full"] }
 tokio-stream = "0.1.17"
 uuid = { version = "1.19.0", features = ["v4"] }
 warp = "0.3.7"
+
+[dev-dependencies]
+# Behavioral tests (tests/) drive the running warp server over real HTTP
+# and WebSocket connections — they are the spec the axum 1.0 rewrite must
+# satisfy. The client stack is dev-only; the crate itself stays on warp.
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+tokio-tungstenite = "0.26"
+tempfile = "3"

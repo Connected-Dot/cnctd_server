@@ -78,8 +78,9 @@ impl ServerInfo {
         })?;
 
         if server_info.websocket {
-            let connections = CONNECTIONS.get().read().await;
-            server_info.current_connections = connections.len();
+            // Take the count and drop the guard before broadcasting: the
+            // broadcast locks the table itself (see CnctdSocket::broadcast_message).
+            server_info.current_connections = CONNECTIONS.get().read().await.len();
             let msg = Message::new("server-info", "heartbeat", Some(json!(server_info.clone())));
             CnctdSocket::broadcast_message(&msg).await?;
         }

@@ -172,12 +172,21 @@ impl CnctdSocket {
     }
 
     pub async fn broadcast_message(msg: &Message) -> anyhow::Result<()> {
-        let connections = CONNECTIONS.try_get().ok_or_else(|| anyhow!("Connections not initialized"))?.read().await;
+        // Collect the subscriber ids and RELEASE the read lock before sending.
+        // `message_connection` takes the lock again; tokio's RwLock is
+        // write-preferring, so a nested read behind a queued writer (a
+        // registration, a data update) deadlocked the whole connection table.
+        let subscriber_ids: Vec<String> = {
+            let connections = CONNECTIONS.try_get().ok_or_else(|| anyhow!("Connections not initialized"))?.read().await;
+            connections
+                .iter()
+                .filter(|(_, c)| c.subscriptions.contains(&msg.channel))
+                .map(|(id, _)| id.clone())
+                .collect()
+        };
 
-        for (connection_id, connection) in connections.iter() {
-            if connection.subscriptions.contains(&msg.channel) {
-                CnctdConnection::message_connection(&connection_id, msg).await?;
-            }
+        for connection_id in subscriber_ids {
+            CnctdConnection::message_connection(&connection_id, msg).await?;
         }
 
         Ok(())

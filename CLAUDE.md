@@ -162,9 +162,30 @@ cargo test
 cargo publish
 ```
 
+### Behavioral test suite (`tests/`)
+
+`cargo test` drives a real server over HTTP and WebSocket and pins the
+behavior cnctd.world depends on. It is the spec any rewrite (the axum 1.0
+effort) must satisfy before a consumer moves to it.
+
+- `tests/rest.rs` — envelopes, status codes, lenient body parsing, query-as-data,
+  `route_with_raw_body` / `route_binary` / `route` dispatch order, redirects, CORS
+- `tests/socket.rs` — register-then-connect, inline registration, routing, push
+  (broadcast / user / subscribers / key-value owners), binary frames, disconnect
+  hook, heartbeat, 10s unopened-connection expiry
+- `tests/spa.rs` — static files, index fallback, `page_meta` head injection
+- `tests/units.rs` — path splitting, JWT, macros, builders
+- `tests/common/mod.rs` — recording routers and the one-server-per-process harness
+
+Because connections and server info live in process-wide statics, each test
+file starts exactly one server (own port, own thread) and all its tests share it.
+Tests marked `KNOWN QUIRK` pin current behavior that 1.0 should change
+(rejections falling through to the SPA catch-all as 200 HTML, `Client-Id`
+missing from the CORS allow-list, whole `X-Forwarded-For` value as the ip).
+
 ## Version
 
-Current version: **0.4.10**
+Current version: **0.6.6**
 
 ---
 
