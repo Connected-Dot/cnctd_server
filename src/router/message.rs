@@ -1,55 +1,29 @@
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
+//! Push message shapes (from `cnctd_protocol`) and the convenience senders
+//! that go through the running server's connection table.
 
-use crate::socket::{connection::CnctdConnection, CnctdSocket};
+pub use cnctd_protocol::message::{Message, SocketMessage, UserMessage, UserSocketMessage};
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-pub struct Message {
-    pub channel: String,
-    pub instruction: String,
-    pub data: Option<Value>
+use crate::socket::connection::Connections;
+
+/// `Message::broadcast()` and `Message::to_user()` on the running server.
+/// Bring the trait into scope: `use cnctd_server::router::message::Push;`.
+#[async_trait::async_trait]
+pub trait Push {
+    /// To every connection subscribed to the message's channel (see
+    /// [`Connections::global`]).
+    async fn broadcast(&self) -> anyhow::Result<()>;
+
+    /// To every connection of `user_id`, except `exclude_connection_id`.
+    async fn to_user(&self, user_id: &str, exclude_connection_id: Option<String>) -> anyhow::Result<()>;
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct UserMessage {
-    pub data_type: Option<String>,
-    pub data: Option<Value>,
-    pub user_id: String,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct UserSocketMessage {
-    pub receiver_id: String,
-    pub message: Message,
-}
-
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct SocketMessage {
-    pub channel: String,
-    pub instruction: Option<String>,
-    pub data: Option<Value>,
-    pub response_channel: Option<String>,
-}
-
-impl Message {
-    pub fn new(channel: &str, instruction: &str, data: Option<Value>) -> Self {
-        Self {
-            channel: channel.into(),
-            instruction: instruction.into(),
-            data,
-        }
+#[async_trait::async_trait]
+impl Push for Message {
+    async fn broadcast(&self) -> anyhow::Result<()> {
+        Connections::global()?.broadcast(self).await
     }
 
-    pub async fn broadcast(&self) -> anyhow::Result<()> {
-        CnctdSocket::broadcast_message(self).await?;
-        
-        Ok(())
-    }
-
-    pub async fn to_user(&self, user_id: &str, exclude_connection_id: Option<String>) -> anyhow::Result<()> {
-        CnctdConnection::message_user(user_id, self, exclude_connection_id).await?;
-
-        Ok(())
+    async fn to_user(&self, user_id: &str, exclude_connection_id: Option<String>) -> anyhow::Result<()> {
+        Connections::global()?.message_user(user_id, self, exclude_connection_id).await
     }
 }

@@ -1,333 +1,322 @@
+//! The WebSocket endpoint: upgrade, per-connection send/receive loop,
+//! disconnect hooks. The connection table itself is [`connection`].
+
 pub mod connection;
+pub mod fanout;
+#[cfg(feature = "redis")]
+pub mod redis_fanout;
 
-use anyhow::anyhow;
-use connection::{ConnectionFormat, ConnectionInfo, CnctdConnection, QueryParams};
-use cnctd_redis::CnctdRedis;
+use std::{future::Future, marker::PhantomData, net::SocketAddr, pin::Pin, sync::Arc, time::Duration};
+
+use axum::{
+    extract::{
+        ws::{Message as Frame, WebSocket, WebSocketUpgrade},
+        ConnectInfo, Query, State,
+    },
+    http::HeaderMap,
+    response::{IntoResponse, Response},
+    routing::get,
+    Json, Router,
+};
 use futures_util::{SinkExt, StreamExt};
-use local_ip_address::local_ip;
-use serde::de::DeserializeOwned;
-use serde::Serialize;
-use state::InitCell;
-use warp::filters::ws::Ws;
-use warp::reject::Reject;
-use warp::ws::{Message as WebSocketMessage, WebSocket};
-use warp::Filter;
-use std::collections::HashMap;
-use std::future::Future;
-use std::pin::Pin;
-use tokio::sync::{mpsc, RwLock};
-use std::{sync::Arc, fmt::Debug};
+use serde::{de::DeserializeOwned, Serialize};
+use tokio::sync::mpsc;
+use tracing::{debug, info, warn};
 
-use crate::router::message::Message;
-use crate::router::SocketRouterFunction;
-use crate::server::server_info::ServerInfo;
+pub use connection::{CnctdConnection, ConnectionFormat, ConnectionInfo, Connections};
 
-/// Callback type for handling incoming binary WebSocket frames.
-/// Arguments: (connection_id, raw_bytes)
+use self::connection::{Outbound, QueryParams};
+use crate::{
+    auth::CnctdAuth,
+    router::{error::ErrorResponse, message::Message, SocketRouter},
+    utils::client_ip,
+};
+
+/// Called with `(connection_id, bytes)` for every inbound binary frame.
 pub type OnBinaryHandler = Arc<dyn Fn(String, Vec<u8>) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
-
-#[derive(Debug)]
-struct NoConnectionId;
-
-impl Reject for NoConnectionId {}
+/// Called once per connection, after its socket closes and before it leaves
+/// the table.
+pub type OnDisconnect = Arc<dyn Fn(ConnectionInfo) + Send + Sync>;
 
 #[derive(Clone)]
 pub struct SocketConfig<R> {
     pub router: R,
+    /// JWT secret. With one set, `?token=<jwt>` on the upgrade authenticates
+    /// the connection (sets `user_id`, `authenticated`).
     pub secret: Option<Vec<u8>>,
+    /// Kept for the Redis fan-out; see `ServerConfig::with_fanout`.
     pub redis_url: Option<String>,
-    pub on_disconnect: Option<Arc<dyn Fn(ConnectionInfo) + Send + Sync>>,
+    pub on_disconnect: Option<OnDisconnect>,
     pub on_binary: Option<OnBinaryHandler>,
+    /// Where the socket lives. `/ws`.
+    pub path: String,
+    /// Push `{"channel":"socket","instruction":"connected","data":<ConnectionInfo>}`
+    /// as the first frame of every JSON-format connection, so a client that
+    /// registered inline learns its `connection_id`. Off by default: the
+    /// wire stays exactly 0.6 unless the app opts in.
+    pub announce_connected: bool,
+    /// Send a WebSocket ping this often so idle connections survive proxies
+    /// that reset silent sockets (Cloudflare does so after ~100 s). Browsers
+    /// cannot send pings themselves and answer ours automatically. 30 s;
+    /// `None` turns it off.
+    pub keepalive: Option<Duration>,
 }
 
 impl<R> SocketConfig<R> {
-    pub fn new(router: R, secret: Option<Vec<u8>>, redis_url: Option<String>, on_disconnect: Option<Arc<dyn Fn(ConnectionInfo) + Send + Sync>>,) -> Self {
+    pub fn new(router: R, secret: Option<Vec<u8>>, redis_url: Option<String>, on_disconnect: Option<OnDisconnect>) -> Self {
         Self {
             router,
             secret,
             redis_url,
             on_disconnect,
             on_binary: None,
+            path: "/ws".to_string(),
+            announce_connected: false,
+            keepalive: Some(Duration::from_secs(30)),
         }
+    }
+
+    /// See [`SocketConfig::keepalive`].
+    pub fn with_keepalive(mut self, every: Option<Duration>) -> Self {
+        self.keepalive = every;
+        self
+    }
+
+    /// See [`SocketConfig::announce_connected`].
+    pub fn with_connected_announcement(mut self, on: bool) -> Self {
+        self.announce_connected = on;
+        self
     }
 
     pub fn with_on_binary(mut self, handler: OnBinaryHandler) -> Self {
         self.on_binary = Some(handler);
         self
     }
+
+    pub fn with_path(mut self, path: &str) -> Self {
+        self.path = if path.starts_with('/') { path.to_string() } else { format!("/{}", path) };
+        self
+    }
 }
 
-
-
-pub static CONNECTIONS: InitCell<Arc<RwLock<HashMap<String, CnctdConnection>>>> = InitCell::new();
-
+/// Compatibility handle: `CnctdSocket::broadcast_message` pushes a
+/// [`Message`] through the running server's table.
 pub struct CnctdSocket;
 
 impl CnctdSocket {
-    pub fn build_routes<M, Resp, R>(config: SocketConfig<R>) -> warp::filters::BoxedFilter<(impl warp::Reply,)>
-    where
-        M: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static,
-        Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static,
-        R: SocketRouterFunction<M, Resp> + 'static,
-    {
-        CONNECTIONS.set(Arc::new(RwLock::new(HashMap::new())));
-
-        let redis;
-
-        match config.redis_url {
-            Some(url) => {
-                match cnctd_redis::CnctdRedis::start(&url) {
-                    Ok(_) => {
-                        println!("Redis started!");
-                        tokio::spawn(async {
-                            ServerInfo::set_redis_active(true).await;
-                        });
-                        redis = true
-                    },
-                    Err(e) => {
-                        println!("Error starting Redis pool: {:?}", e);
-                        redis = false
-                    }
-                }
-            }
-            None => redis = false
-        };
-
-        let websocket_route = warp::path("ws")
-            .and(warp::ws())
-            .and(warp::any().map(move || config.router.clone()))
-            .and(warp::query::<QueryParams>())
-            .and_then(move |ws: Ws, router: R, params: QueryParams| {
-                let on_disconnect = config.on_disconnect.clone();
-                let on_binary = config.on_binary.clone();
-
-                async move {
-                    // Resolve connection_id: either from query param or via inline registration
-                    let connection_id = match params.connection_id {
-                        Some(id) => id,
-                        None => {
-                            // Support inline registration: if subscriptions are provided,
-                            // auto-register a new connection (used by ESP32 and other lightweight
-                            // clients that don't have an HTTP client for the REST registration step).
-                            if let Some(ref subs_str) = params.subscriptions {
-                                let subscriptions: Vec<String> = subs_str
-                                    .split(',')
-                                    .map(|s| s.trim().to_string())
-                                    .filter(|s| !s.is_empty())
-                                    .collect();
-                                let format = ConnectionFormat::from_str_opt(params.format.as_deref());
-                                match CnctdConnection::register_connection_with_format(
-                                    subscriptions,
-                                    None,
-                                    format,
-                                ).await {
-                                    Ok(id) => {
-                                        println!("Inline-registered connection: {}", id);
-                                        id
-                                    }
-                                    Err(e) => {
-                                        eprintln!("Inline registration failed: {:?}", e);
-                                        return Err(warp::reject::custom(NoConnectionId));
-                                    }
-                                }
-                            } else {
-                                return Err(warp::reject::custom(NoConnectionId));
-                            }
-                        },
-                    };
-
-                    // Proceed with connection setup
-                    Ok(ws.on_upgrade(move |socket| {
-                        Self::handle_connection(socket, router, connection_id, redis, on_disconnect.clone(), on_binary)
-                    }))
-                }
-            });
-
-
-        let routes = websocket_route;
-
-        routes.boxed()
-
-    }
-    pub async fn start<M, Resp, R>(port: &str, router: R, secret: Option<Vec<u8>>, redis_url: Option<String>, on_disconnect: Option<Arc<dyn Fn(ConnectionInfo) + Send + Sync>>,) -> anyhow::Result<()>
-    where
-        M: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static,
-        Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static,
-        R: SocketRouterFunction<M, Resp> + 'static,
-    {
-        CONNECTIONS.set(Arc::new(RwLock::new(HashMap::new())));
-
-        let my_local_ip = local_ip()?;
-        println!("WebSocket server running at ws://{}:{}", my_local_ip, port);
-        let ip_address: [u8; 4] = [0, 0, 0, 0];
-        let parsed_port = port.parse::<u16>()?;
-        let socket_addr = std::net::SocketAddr::from((ip_address, parsed_port));
-        let config = SocketConfig::new(router, secret, redis_url, on_disconnect);
-        let routes = Self::build_routes(config);
-
-        warp::serve(routes).run(socket_addr).await;
-
-        Ok(())
-
-    }
-
     pub async fn broadcast_message(msg: &Message) -> anyhow::Result<()> {
-        // Collect the subscriber ids and RELEASE the read lock before sending.
-        // `message_connection` takes the lock again; tokio's RwLock is
-        // write-preferring, so a nested read behind a queued writer (a
-        // registration, a data update) deadlocked the whole connection table.
-        let subscriber_ids: Vec<String> = {
-            let connections = CONNECTIONS.try_get().ok_or_else(|| anyhow!("Connections not initialized"))?.read().await;
-            connections
-                .iter()
-                .filter(|(_, c)| c.subscriptions.contains(&msg.channel))
-                .map(|(id, _)| id.clone())
-                .collect()
-        };
+        Connections::global()?.broadcast(msg).await
+    }
+}
 
-        for connection_id in subscriber_ids {
-            CnctdConnection::message_connection(&connection_id, msg).await?;
+struct WsState<Req, Resp, R> {
+    router: Arc<R>,
+    connections: Connections,
+    secret: Option<Vec<u8>>,
+    on_disconnect: Option<OnDisconnect>,
+    on_binary: Option<OnBinaryHandler>,
+    announce_connected: bool,
+    keepalive: Option<Duration>,
+    _marker: PhantomData<fn() -> (Req, Resp)>,
+}
+
+impl<Req, Resp, R> Clone for WsState<Req, Resp, R> {
+    fn clone(&self) -> Self {
+        Self {
+            router: self.router.clone(),
+            connections: self.connections.clone(),
+            secret: self.secret.clone(),
+            on_disconnect: self.on_disconnect.clone(),
+            on_binary: self.on_binary.clone(),
+            announce_connected: self.announce_connected,
+            keepalive: self.keepalive,
+            _marker: PhantomData,
         }
+    }
+}
 
-        Ok(())
+pub(crate) fn router<Req, Resp, R>(config: SocketConfig<R>, connections: Connections) -> Router
+where
+    Req: DeserializeOwned + Send + 'static,
+    Resp: Serialize + Send + 'static,
+    R: SocketRouter<Req, Resp>,
+{
+    let state = WsState::<Req, Resp, R> {
+        router: Arc::new(config.router),
+        connections,
+        secret: config.secret,
+        on_disconnect: config.on_disconnect,
+        on_binary: config.on_binary,
+        announce_connected: config.announce_connected,
+        keepalive: config.keepalive,
+        _marker: PhantomData,
+    };
+    Router::new().route(&config.path, get(upgrade::<Req, Resp, R>)).with_state(state)
+}
+
+fn refuse(err: ErrorResponse) -> Response {
+    (err.status.status_code(), Json(err)).into_response()
+}
+
+async fn upgrade<Req, Resp, R>(
+    ws: WebSocketUpgrade,
+    State(state): State<WsState<Req, Resp, R>>,
+    Query(params): Query<QueryParams>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+) -> Response
+where
+    Req: DeserializeOwned + Send + 'static,
+    Resp: Serialize + Send + 'static,
+    R: SocketRouter<Req, Resp>,
+{
+    let connections = state.connections.clone();
+
+    // Which connection is this? A registered id, or an inline registration.
+    let connection_id = match (params.connection_id, params.subscriptions) {
+        (Some(id), _) => {
+            if !connections.contains(&id).await {
+                return refuse(ErrorResponse::new(None, Some(format!("unknown connection_id {}", id))));
+            }
+            id
+        }
+        (None, Some(subs)) => {
+            let subscriptions: Vec<String> =
+                subs.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+            let format = ConnectionFormat::from_str_opt(params.format.as_deref());
+            let id = connections.register(subscriptions, client_ip(&headers, Some(peer)), format).await;
+            info!(connection_id = %id, "inline-registered connection");
+            id
+        }
+        (None, None) => {
+            return refuse(ErrorResponse::new(
+                Some(crate::router::error::ErrorCode::BadRequest),
+                Some("connection_id or subscriptions query parameter required".into()),
+            ));
+        }
+    };
+
+    // Optional auth at upgrade.
+    if let Some(token) = params.token {
+        match &state.secret {
+            Some(secret) => match CnctdAuth::verify_auth_token(secret.clone(), &token) {
+                Ok(user_id) => {
+                    let _ = connections.update_user_id(&connection_id, &user_id).await;
+                    let _ = connections.update_authenticated(&connection_id, true).await;
+                }
+                Err(e) => {
+                    return refuse(ErrorResponse::new(
+                        Some(crate::router::error::ErrorCode::Unauthorized),
+                        Some(format!("invalid token: {}", e)),
+                    ));
+                }
+            },
+            None => warn!(connection_id, "token given but the socket has no secret; ignoring"),
+        }
     }
 
+    ws.on_upgrade(move |socket| run::<Req, Resp, R>(socket, state, connection_id))
+}
 
+async fn run<Req, Resp, R>(socket: WebSocket, state: WsState<Req, Resp, R>, connection_id: String)
+where
+    Req: DeserializeOwned + Send + 'static,
+    Resp: Serialize + Send + 'static,
+    R: SocketRouter<Req, Resp>,
+{
+    let connections = state.connections;
+    let (tx, mut rx) = mpsc::unbounded_channel::<Outbound>();
+    if let Err(e) = connections.attach_sender(&connection_id, tx.clone()).await {
+        warn!(connection_id, "could not attach socket: {}", e);
+        return;
+    }
+    debug!(connection_id, "socket open");
 
-    async fn handle_connection<M, Resp, R>(
-        websocket: WebSocket,
-        router: R,
-        connection_id: String,
-        redis: bool,
-        on_disconnect: Option<Arc<dyn Fn(ConnectionInfo) + Send + Sync>>,
-        on_binary: Option<OnBinaryHandler>,
-    ) where
-        M: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static,
-        Resp: Serialize + DeserializeOwned + Send + Sync + Debug + Clone + 'static,
-        R: SocketRouterFunction<M, Resp> + 'static,
-    {
-        let (mut ws_tx, mut ws_rx) = websocket.split();
-        let (resp_tx, mut resp_rx) = mpsc::unbounded_channel::<Result<WebSocketMessage, warp::Error>>();
-
-        {
-            let connections = CONNECTIONS.get();
-            let mut connections_lock = connections.write().await;
-
-            if let Some(connection) = connections_lock.get_mut(&connection_id.clone()) {
-                connection.sender = Some(resp_tx.clone());
-
-                if redis {
-                    match Self::push_connection_to_redis(&connection_id, &connection.clone()).await {
-                        Ok(_) => println!("pajama party"),
-                        Err(e) => eprintln!("Error pushing connection to Redis: {:?}", e),
-                    }
+    if state.announce_connected {
+        if let Ok(info) = connections.info(&connection_id).await {
+            if info.format == ConnectionFormat::Json {
+                let hello = Message::new("socket", "connected", Some(serde_json::to_value(&info).unwrap_or_default()));
+                if let Ok(s) = serde_json::to_string(&hello) {
+                    let _ = tx.send(Outbound::Text(s));
                 }
-                println!("Updated connection sender: {:?}", connection);
-            } else {
-                eprintln!("Connection with id {} not found.", connection_id);
-                return;
             }
         }
+    }
 
-        let connection_id_clone = connection_id.clone();
-        // Incoming message handling
-        let process_incoming = async move {
-            while let Some(result) = ws_rx.next().await {
-                match result {
+    let (mut ws_tx, mut ws_rx) = socket.split();
+
+    let outbound = async {
+        while let Some(out) = rx.recv().await {
+            let frame = match out {
+                Outbound::Text(s) => Frame::Text(s.into()),
+                Outbound::Binary(b) => Frame::Binary(b.into()),
+                Outbound::Ping => Frame::Ping(Default::default()),
+            };
+            if ws_tx.send(frame).await.is_err() {
+                break;
+            }
+        }
+    };
+
+    let router = state.router;
+    let on_binary = state.on_binary;
+    let reply_tx = tx.clone();
+    let id_for_inbound = connection_id.clone();
+    let inbound = async {
+        while let Some(Ok(frame)) = ws_rx.next().await {
+            match frame {
+                Frame::Text(text) => match serde_json::from_str::<Req>(text.as_str()) {
                     Ok(msg) => {
-                        if msg.is_binary() {
-                            if let Some(ref handler) = on_binary {
-                                let bytes = msg.into_bytes();
-                                handler(connection_id_clone.clone(), bytes).await;
-                            }
-                        } else if let Ok(message_str) = msg.to_str() {
-                            if let Ok(message) = serde_json::from_str::<M>(message_str) {
-                                match router.route(message, connection_id_clone.clone()).await {
-                                    Some(response) => {
-                                        if let Ok(response_str) = serde_json::to_string(&response) {
-                                            let _ = resp_tx.send(Ok(WebSocketMessage::text(response_str)));
-                                        }
-                                    },
-                                    None => {}
+                        if let Some(reply) = router.route(msg, id_for_inbound.clone()).await {
+                            match serde_json::to_string(&reply) {
+                                Ok(s) => {
+                                    let _ = reply_tx.send(Outbound::Text(s));
                                 }
+                                Err(e) => warn!(connection_id = %id_for_inbound, "reply not serializable: {}", e),
                             }
                         }
-                    },
-                    Err(e) => eprintln!("WebSocket receive error: {:?}", e),
+                    }
+                    Err(_) => debug!(connection_id = %id_for_inbound, "dropped text frame that is not a request"),
+                },
+                Frame::Binary(bytes) => {
+                    if let Some(handler) = &on_binary {
+                        handler(id_for_inbound.clone(), bytes.to_vec()).await;
+                    }
                 }
+                Frame::Close(_) => break,
+                Frame::Ping(_) | Frame::Pong(_) => {}
             }
-        };
+        }
+    };
 
-        // Outgoing message handling
-        let send_responses = async move {
-            while let Some(response) = resp_rx.recv().await {
-                if let Ok(msg) = response {
-                    if ws_tx.send(msg).await.is_err() {
-                        eprintln!("WebSocket send error");
+    let keepalive_tx = tx.clone();
+    let keepalive = async {
+        match state.keepalive {
+            Some(every) => {
+                let mut tick = tokio::time::interval(every);
+                tick.tick().await; // the first tick is immediate
+                loop {
+                    tick.tick().await;
+                    if keepalive_tx.send(Outbound::Ping).is_err() {
                         break;
                     }
                 }
             }
-        };
+            None => std::future::pending::<()>().await,
+        }
+    };
 
-        tokio::select! {
-            _ = process_incoming => {},
-            _ = send_responses => {},
-        };
+    tokio::select! {
+        _ = outbound => {},
+        _ = inbound => {},
+        _ = keepalive => {},
+    }
 
-        if let Some(callback) = on_disconnect {
-            let info = CnctdConnection::get_connection_info(&connection_id).await.unwrap();
+    debug!(connection_id, "socket closed");
+    if let Some(callback) = state.on_disconnect {
+        if let Ok(info) = connections.info(&connection_id).await {
             callback(info);
         }
-
-        // Clean up after disconnection
-        match Self::remove_connection(&connection_id).await {
-            Ok(_) => {},
-            Err(e) => eprintln!("Error removing connection: {:?}", e),
-        };
-
-        if redis {
-            match Self::remove_connection_from_redis(&connection_id).await {
-                Ok(_) => {},
-                Err(e) => eprintln!("Error removing connection from Redis: {:?}", e),
-            }
-        }
-
-
-
     }
-
-    pub async fn remove_connection(connection_id: &str) -> anyhow::Result<()> {
-        let connections = CONNECTIONS.try_get().ok_or_else(|| anyhow!("Connections not initialized"))?;
-        let mut connections_lock = connections.write().await;
-
-        if let Some(connection) = connections_lock.get(connection_id) {
-            let should_remove = connection.sender.as_ref().map_or(true, |sender| sender.is_closed());
-
-            if should_remove {
-                println!("Removing connection: {}", connection_id);
-                connections_lock.remove(connection_id);
-            } else {
-                println!("Connection {} is active; no removal necessary.", connection_id);
-            }
-        }
-
-        Ok(())
-    }
-
-
-
-    pub async fn push_connection_to_redis(connection_id: &str, connection: &CnctdConnection) -> anyhow::Result<()> {
-        let info = connection.to_connection_info(connection_id).await;
-        CnctdRedis::hset("connections", &connection_id, info)?;
-
-        Ok(())
-    }
-
-    pub async fn remove_connection_from_redis(connection_id: &str) -> anyhow::Result<()> {
-        CnctdRedis::hset("connections", connection_id, ())?;
-
-        Ok(())
-    }
-
+    connections.remove(&connection_id).await;
 }

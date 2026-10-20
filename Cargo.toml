@@ -1,45 +1,44 @@
 [package]
 name = "cnctd_server"
-version = "0.6.6"
+version = "1.0.0-alpha.2"
 edition = "2021"
 authors = ["Connected Dot Inc.", "Kyle Ebner <kyle@cnctd.world>"]
-description = "Collection of server APIs"
+description = "HTTP + WebSocket server framework for Connected Dot services (axum)"
 repository = "https://github.com/Connected-Dot/cnctd_server"
 license = "MIT"
 keywords = ["module"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+default = []
+# Cross-instance push over Redis pub/sub (socket::redis_fanout::RedisFanout).
+redis = ["dep:redis"]
 
 [dependencies]
-anyhow = "1.0.100"
-# async-graphql = "7.0.3"
-# async-graphql-warp = "7.0.3"
+anyhow = "1.0"
+async-trait = "0.1"
+axum = { version = "0.8", features = ["ws", "macros"] }
 bytes = "1"
-chrono = { version = " 0.4.42", features = ["serde"] }
-# cnctd_aws = "0.1.9"
-cnctd_redis = { version = "0.1.9" }
-# cnctd_redis = { version = "0.1.4", path = "../cnctd_redis" }
-futures-util = "0.3.31"
-hmac = "0.12.1"
-jwt = "0.16.0"
-local-ip-address = "0.6.8"
-public-ip = "0.2.2"
-r2d2 = "0.8.10"
-r2d2_redis = "0.14.0"
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.148"
-sha2 = "0.10.8"
-state = "0.6.0"
-sys-info = "0.9.1"
-tokio = { version = "1.48.0", features = ["full"] }
-tokio-stream = "0.1.17"
-uuid = { version = "1.19.0", features = ["v4"] }
-warp = "0.3.7"
+chrono = { version = "0.4", features = ["serde"] }
+cnctd_protocol = "1.0.0-alpha.1"
+futures-util = "0.3"
+hmac = "0.12"
+jwt = "0.16"
+local-ip-address = "0.6"
+redis = { version = "1.0", features = ["tokio-comp"], optional = true }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_urlencoded = "0.7"
+sha2 = "0.10"
+sys-info = "0.9"
+tokio = { version = "1", features = ["full"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs", "cors"] }
+tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
-# Behavioral tests (tests/) drive the running warp server over real HTTP
-# and WebSocket connections — they are the spec the axum 1.0 rewrite must
-# satisfy. The client stack is dev-only; the crate itself stays on warp.
-reqwest = { version = "0.12", default-features = false, features = ["json"] }
+# The behavioral suite in tests/ drives real servers over HTTP and WebSocket.
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream"] }
 tokio-tungstenite = "0.26"
+tokio-stream = "0.1"
 tempfile = "3"

@@ -1,82 +1,68 @@
-pub mod response;
+//! The two traits an app implements, and the request / response types that
+//! cross them.
+
+pub mod error;
 pub mod message;
 pub mod request;
-pub mod error;
+pub mod response;
 
+use serde::{de::DeserializeOwned, Serialize};
 
-use std::collections::HashMap;
-use std::{future::Future, pin::Pin};
-use std::fmt::Debug;
-use bytes::Bytes;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
-
+pub use request::Request;
+pub use response::Response;
 
 use self::error::ErrorResponse;
-use self::response::{BinaryResponse, SuccessResponse};
 
-// Re-export so consumers can use raw-body routes without depending on `bytes`
-// directly: `use cnctd_server::router::Bytes;` (or via the crate root).
-pub use bytes::Bytes as ReqBodyBytes;
+pub use cnctd_protocol::HttpMethod;
 
-
-#[derive(Debug)]
-pub enum HttpMethod {
-    GET,
-    POST,
-    PUT,
-    DELETE,
+/// The app's HTTP router. One call per request under the API prefix (default
+/// `/api`) and under `/redirect`; the framework does no routing of its own
+/// beyond that — `req.path` is the full path and the app dispatches on it
+/// (see [`Request::resource_and_operation`]).
+///
+/// Return a [`Response`] variant for the body you want — the JSON envelope the
+/// macros build, raw bytes, a redirect, a byte stream or server-sent events —
+/// or an [`ErrorResponse`] (also built by macros) for a JSON error envelope
+/// with its status code.
+///
+/// ```ignore
+/// #[cnctd_server::async_trait]
+/// impl RestRouter for MyRouter {
+///     async fn route(&self, req: Request) -> Result<Response, ErrorResponse> {
+///         let (resource, op) = req.resource_and_operation();
+///         match resource.as_str() {
+///             "dots" => Ok(dots::route(req.method, op, req.data, req.auth_token).await?.into()),
+///             _ => Err(not_found!("no such resource")),
+///         }
+///     }
+/// }
+/// ```
+#[async_trait::async_trait]
+pub trait RestRouter: Send + Sync + 'static {
+    async fn route(&self, req: Request) -> Result<Response, ErrorResponse>;
 }
 
-pub trait RestRouterFunction: Send + Sync + Clone
+/// The app's WebSocket router. Text frames are parsed as `Req`; a `Some`
+/// reply is serialized and sent back on the same connection. Frames that do
+/// not parse as `Req` are dropped. Binary frames never reach this router —
+/// see [`crate::socket::SocketConfig::with_on_binary`].
+#[async_trait::async_trait]
+pub trait SocketRouter<Req, Resp>: Send + Sync + 'static
 where
-    Self: Send + Sync + Clone,
+    Req: DeserializeOwned + Send + 'static,
+    Resp: Serialize + Send + 'static,
 {
-    fn route(&self, method: HttpMethod, path: String, data: Value, auth_token: Option<String>, connection_id: Option<String>, ip_address: Option<String>) -> Pin<Box<dyn Future<Output = Result<SuccessResponse, ErrorResponse>> + Send>>;
-    fn route_redirect(&self, path: String, data: Value, auth_token: Option<String>, connection_id: Option<String>) -> Pin<Box<dyn Future<Output = String> + Send>>;
+    async fn route(&self, msg: Req, connection_id: String) -> Option<Resp>;
+}
 
-    /// Route a request that returns raw binary data instead of JSON.
-    /// Returns `Ok(Some(BinaryResponse))` if the path is handled as binary,
-    /// `Ok(None)` if this path should fall through to normal JSON routing,
-    /// or `Err(ErrorResponse)` on failure.
-    fn route_binary(&self, _method: HttpMethod, _path: String, _data: Value, _auth_token: Option<String>, _connection_id: Option<String>, _ip_address: Option<String>) -> Pin<Box<dyn Future<Output = Result<Option<BinaryResponse>, ErrorResponse>> + Send>> {
-        Box::pin(async { Ok(None) })
-    }
+/// For servers without a WebSocket. `CnctdServer::start_without_socket` uses
+/// it so callers never spell out the socket type parameters.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoSocketRouter;
 
-    /// Route a POST request with access to the **raw request body bytes**,
-    /// the **full request headers**, and the parsed Value. Use this for
-    /// endpoints that need to verify byte-exact signatures (Stripe webhooks
-    /// where the signature lives in `Stripe-Signature`, GitHub webhooks
-    /// where it lives in `X-Hub-Signature-256`, etc).
-    ///
-    /// Headers are passed as a HashMap with lowercase keys (HTTP headers
-    /// are case-insensitive) so handlers can do `headers.get("stripe-signature")`
-    /// without worrying about case.
-    ///
-    /// Tried BEFORE `route_binary` and `route` in the POST dispatch chain.
-    /// Default impl returns `Ok(None)` so existing routers are unaffected.
-    fn route_with_raw_body(
-        &self,
-        _method: HttpMethod,
-        _path: String,
-        _body_bytes: Bytes,
-        _data: Value,
-        _headers: HashMap<String, String>,
-        _auth_token: Option<String>,
-        _connection_id: Option<String>,
-        _ip_address: Option<String>,
-    ) -> Pin<Box<dyn Future<Output = Result<Option<BinaryResponse>, ErrorResponse>> + Send>>
-    {
-        Box::pin(async { Ok(None) })
+#[async_trait::async_trait]
+impl SocketRouter<serde_json::Value, serde_json::Value> for NoSocketRouter {
+    async fn route(&self, _msg: serde_json::Value, _connection_id: String) -> Option<serde_json::Value> {
+        None
     }
 }
-
-pub trait SocketRouterFunction<Req, Resp>: Send + Sync + Clone
-where
-    Self: Send + Sync + Clone,
-    Req: Serialize + for<'de> Deserialize<'de> + Clone + Debug,
-    Resp: Serialize + for<'de> Deserialize<'de> + Clone + Debug,
-{
-    fn route(&self, msg: Req, connection_id: String) -> Pin<Box<dyn Future<Output = Option<Resp>> + Send>>;
-}
-

@@ -1,74 +1,74 @@
 # cnctd_server
 
-HTTP/WebSocket server framework for Rust, built on warp.
+HTTP + WebSocket server framework for Connected Dot services. Built on axum;
+the public API does not expose it.
 
-## Overview
-
-cnctd_server provides routing abstractions, response helpers, and WebSocket client management for building web servers in Rust. It's the primary server framework used by Connected Dot projects.
-
-## Installation
+## Install
 
 ```toml
 [dependencies]
-cnctd_server = "0.4.10"
+cnctd_server = "1.0.0-alpha.2"
 ```
 
-## Quick Start
+## Quick start
 
 ```rust
 use cnctd_server::{
-    router::{HttpMethod, RestRouterFunction, error::ErrorResponse, response::SuccessResponse},
-    success_data, bad_request,
+    async_trait, bad_request, not_found, success_data,
+    router::{error::{ErrorCode, ErrorResponse}, response::{SuccessCode, SuccessResponse}},
+    CnctdServer, HttpMethod, Request, Response, RestRouter, ServerConfig,
 };
-use serde_json::{json, Value};
-use std::pin::Pin;
-use std::future::Future;
+use serde_json::json;
 
-#[derive(Clone)]
 struct MyRouter;
 
-impl RestRouterFunction for MyRouter {
-    fn route(
-        &self,
-        method: HttpMethod,
-        path: String,
-        data: Value,
-        auth_token: Option<String>,
-        client_id: Option<String>,
-        ip_address: Option<String>,
-    ) -> Pin<Box<dyn Future<Output = Result<SuccessResponse, ErrorResponse>> + Send>> {
-        Box::pin(async move {
-            match (method, path.as_str()) {
-                (HttpMethod::GET, "/health") => Ok(success_data!(json!({"status": "ok"}))),
-                _ => Err(bad_request!("Unknown route")),
-            }
-        })
+#[async_trait]
+impl RestRouter for MyRouter {
+    async fn route(&self, req: Request) -> Result<Response, ErrorResponse> {
+        let (resource, operation) = req.resource_and_operation();
+        match (req.method, resource.as_str(), operation.as_deref()) {
+            (HttpMethod::GET, "hello", Some(name)) => Ok(success_data!(json!({"hello": name})).into()),
+            (HttpMethod::POST, "echo", _) => Ok(success_data!(req.data).into()),
+            (_, "download", _) => Ok(cnctd_server::router::response::BinaryResponse::octet_stream(req.body.to_vec()).into()),
+            (_, "", _) => Err(bad_request!("a resource is required")),
+            _ => Err(not_found!(format!("no {}", req.path))),
+        }
     }
+}
 
-    fn route_redirect(
-        &self,
-        path: String,
-        data: Value,
-        auth_token: Option<String>,
-        client_id: Option<String>,
-    ) -> Pin<Box<dyn Future<Output = String> + Send>> {
-        Box::pin(async move { "/".to_string() })
-    }
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let config = ServerConfig::new("my-server", "9000", Some("client/dist".into()), MyRouter, Some(10), None, None);
+    CnctdServer::start_without_socket(config).await
 }
 ```
 
-## Features
+`GET /api/hello/world` → `{"success":true,"status":"OK","msg":null,"data":{"hello":"world"}}`.
+Anything that is not a file under `client/dist` serves `index.html`.
 
-- REST routing with `RestRouterFunction` trait
-- WebSocket support with `SocketRouterFunction` trait
-- Response macros: `success_data!`, `success_msg!`, `bad_request!`, `unauthorized!`, etc.
-- Client management with optional Redis backing
-- JWT authentication helpers
+## What you get
 
-## Documentation
+- **Envelopes** via macros: `success_data!`, `success_msg!`, `created!`,
+  `bad_request!`, `unauthorized!`, `forbidden!`, `not_found!`,
+  `internal_server_error!`, and the rest of the 4xx/5xx set.
+- **Other bodies**: `Response::Binary`, `Response::Redirect`,
+  `Response::Stream`, `Response::Sse`.
+- **Request context**: method, full path, prefix, query, raw body, lenient
+  parsed data, lowercase headers, auth token (`req.bearer()` strips the
+  prefix), the caller's WebSocket `Client-Id`, first-hop client IP.
+- **WebSocket** with a connection table: register over REST or inline on the
+  upgrade (`/ws?subscriptions=a,b`), optional JWT at upgrade, push by
+  channel / user / connection / key-value, binary frames both ways,
+  disconnect hook, heartbeat on `server-info`.
+- **Operations**: CORS with an origin list, body size limit, graceful
+  shutdown (`CnctdServer::bind` returns a `RunningServer`), `tracing` logs.
+- **More than one instance**: feature `redis` fans pushes out over Redis
+  pub/sub; set `SocketConfig.redis_url` or pass a `RedisFanout`.
+- **One wire contract**: the types are the `cnctd_protocol` crate, shared with
+  `cnctd_client` and generated into the `cnctd-server` npm package.
 
-See [CLAUDE.md](./CLAUDE.md) for detailed API documentation and usage patterns.
+Full reference: `CLAUDE.md`. Moving from 0.6: `MIGRATION.md`.
 
 ## License
 
-MIT - Connected Dot Inc.
+MIT
